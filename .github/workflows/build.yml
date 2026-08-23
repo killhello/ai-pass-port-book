@@ -21,9 +21,9 @@ jobs:
           target: esp32c3
           command: |
             idf.py build
-            # 生成 SPIFFS 镜像 (6MB 分区, 数据目录 spiffs_data)
+            # 生成 SPIFFS 镜像 (约 7MB 分区, 数据目录 spiffs_data)
             python $IDF_PATH/components/spiffs/spiffsgen.py \
-              0x610000 spiffs_data build/spiffs.bin
+              0x6F0000 spiffs_data build/spiffs.bin
             # 列出 build 产物便于排查
             ls -la build/*.bin build/bootloader/*.bin build/partition_table/*.bin 2>/dev/null || true
             cat build/flasher_args.json 2>/dev/null || true
@@ -53,7 +53,7 @@ jobs:
           echo "  0x0 bootloader.bin \\" >> release/刷写说明.txt
           echo "  0x8000 partition-table.bin \\" >> release/刷写说明.txt
           echo "  0x10000 firmware.bin \\" >> release/刷写说明.txt
-          echo "  0x1F0000 spiffs.bin" >> release/刷写说明.txt
+          echo "  0x110000 spiffs.bin" >> release/刷写说明.txt
 
       - name: Upload release zip
         uses: actions/upload-artifact@v4
