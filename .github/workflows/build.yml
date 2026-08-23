@@ -21,7 +21,9 @@ jobs:
           target: esp32c3
           command: |
             idf.py build
-            idf.py spiffsgen
+            # 生成 SPIFFS 镜像 (6MB 分区, 数据目录 spiffs_data)
+            python $IDF_PATH/components/spiffs/spiffsgen.py \
+              0x610000 spiffs_data build/spiffs.bin
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4

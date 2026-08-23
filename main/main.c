@@ -16,6 +16,7 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_spiffs.h"
+#include "boot_animation.h"
 
 static const char *TAG = "main";
 
@@ -135,13 +136,22 @@ void app_main(void) {
 
     // 屏幕是本 demo 的 UI 载体,失败就没有菜单可言 —— 打清楚日志后退出,
     // 不做"串口菜单"降级(那会让本文件复杂一倍,违背参考示例的初衷)。
-    if (bsp_display_init() != ESP_OK || !bsp_lvgl_init()) {
-        ESP_LOGE(TAG, "显示/LVGL 初始化失败,demo 无法继续。"
+    if (bsp_display_init() != ESP_OK) {
+        ESP_LOGE(TAG, "显示初始化失败,demo 无法继续。"
                       "检查 SPI 接线(MOSI=%d SCLK=%d CS=%d DC=%d BL=%d)",
                  BSP_LCD_MOSI, BSP_LCD_SCLK, BSP_LCD_CS, BSP_LCD_DC, BSP_LCD_BL);
         return;
     }
     bsp_display_backlight(100);
+
+    // ---- 开机动画 (在 LVGL 初始化之前,直接操作面板,速度最快) ----
+    boot_animation_play();
+
+    // 初始化 LVGL
+    if (!bsp_lvgl_init()) {
+        ESP_LOGE(TAG, "LVGL 初始化失败");
+        return;
+    }
 
     // 其余外设单项失败不阻塞:菜单里标 [FAIL],其他项照常可测。
     s_ok[0] = true;                                   // Display 已确认可用
