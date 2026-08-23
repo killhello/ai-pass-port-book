@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-c3-devkitm-1",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": { "flashSize": "8MB" }
+    },
+    {
+      "type": "wokwi-st7789-display",
+      "id": "lcd",
+      "top": -5,
+      "left": 214,
+      "attrs": { "width": "240", "height": "320" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": 230,
+      "left": 110,
+      "attrs": { "value": "10000" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r2",
+      "top": 260,
+      "left": 110,
+      "attrs": { "value": "1000" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r3",
+      "top": 290,
+      "left": 110,
+      "attrs": { "value": "2200" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_up",
+      "top": 226,
+      "left": 40,
+      "attrs": { "color": "grey", "label": "UP" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_down",
+      "top": 256,
+      "left": 40,
+      "attrs": { "color": "grey", "label": "DOWN" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_ok",
+      "top": 286,
+      "left": 40,
+      "attrs": { "color": "grey", "label": "OK" }
+    }
+  ],
+  "connections": [
+    ["esp:GPIO9", "lcd:MOSI", "green"],
+    ["esp:GPIO8", "lcd:SCK", "green"],
+    ["esp:GPIO1", "lcd:CS", "green"],
+    ["esp:GPIO20", "lcd:DC", "green"],
+    ["esp:GND", "lcd:BLK", "black"],
+    ["esp:3V3", "lcd:VCC", "red"],
+    ["esp:GND", "lcd:GND", "black"],
+    ["esp:GPIO21", "lcd:BLK", "blue"],
+    ["esp:3V3", "r1:1", "red"],
+    ["r1:2", "esp:GPIO0", "orange"],
+    ["r1:2", "btn_up:1.r", "orange"],
+    ["btn_up:2.r", "esp:GND", "black"],
+    ["r2:1", "r1:2", "orange"],
+    ["r2:2", "btn_down:1.r", "yellow"],
+    ["btn_down:2.r", "esp:GND", "black"],
+    ["r3:1", "r2:2", "yellow"],
+    ["r3:2", "btn_ok:1.r", "green"],
+    ["btn_ok:2.r", "esp:GND", "black"]
+  ],
+  "serialMonitor": {
+    "display": "always",
+    "newline": "lf"
+  }
+}

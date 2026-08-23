@@ -14,6 +14,8 @@
 #include "ui_pixel.h"
 #include "lvgl.h"
 #include "esp_log.h"
+#include "nvs_flash.h"
+#include "esp_spiffs.h"
 
 static const char *TAG = "main";
 
@@ -22,6 +24,7 @@ static const demo_entry_t DEMOS[] = {
     { "Button",  demo_button_enter,  demo_button_exit,  demo_button_key  },
     { "Audio",   demo_audio_enter,   demo_audio_exit,   demo_audio_key   },
     { "Battery", demo_battery_enter, demo_battery_exit, demo_battery_key },
+    { "E-Book",  demo_ebook_enter,   demo_ebook_exit,   demo_ebook_key   },
 };
 #define DEMO_COUNT (sizeof(DEMOS) / sizeof(DEMOS[0]))
 
@@ -102,6 +105,31 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
 void app_main(void) {
     ESP_LOGI(TAG, "FoloToy-Card BSP demo 启动");
 
+    // ---- NVS 初始化(电子书进度保存需要) ----
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(err);
+
+    // ---- SPIFFS 初始化(电子书存储需要) ----
+    esp_vfs_spiffs_conf_t spiffs_conf = {
+        .base_path = "/spiffs",
+        .partition_label = NULL,
+        .max_files = 5,
+        .format_if_mount_failed = true,
+    };
+    err = esp_vfs_spiffs_register(&spiffs_conf);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "SPIFFS 挂载失败: %s", esp_err_to_name(err));
+    } else {
+        size_t total = 0, used = 0;
+        esp_spiffs_info(NULL, &total, &used);
+        ESP_LOGI(TAG, "SPIFFS 已挂载: 总 %lu 字节, 已用 %lu 字节",
+                 (unsigned long)total, (unsigned long)used);
+    }
+
     bsp_i2c_init();
     bsp_i2c_scan();
 
@@ -120,9 +148,10 @@ void app_main(void) {
     s_ok[1] = (bsp_button_init(on_key, NULL) == ESP_OK);
     s_ok[2] = (bsp_audio_init() == ESP_OK);
     s_ok[3] = (bsp_battery_init() == ESP_OK);
+    s_ok[4] = true;                                   // E-Book 阅读器
 
     if (bsp_lvgl_lock(1000)) { enter_menu(); bsp_lvgl_unlock(); }
 
-    ESP_LOGI(TAG, "就绪:Display=%d Button=%d Audio=%d Battery=%d",
-             s_ok[0], s_ok[1], s_ok[2], s_ok[3]);
+    ESP_LOGI(TAG, "就绪:Display=%d Button=%d Audio=%d Battery=%d EBook=%d",
+             s_ok[0], s_ok[1], s_ok[2], s_ok[3], s_ok[4]);
 }

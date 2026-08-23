@@ -1,0 +1,58 @@
+name: Build Firmware
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:   # 允许手动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build ESP-IDF firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.3
+          target: esp32c3
+          command: |
+            idf.py build
+            idf.py spiffsgen
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-passport-ebook-firmware
+          path: |
+            build/ai-passport.bin
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+            build/spiffs.bin
+            build/flash_args
+          if-no-files-found: error
+
+      - name: Create release zip
+        run: |
+          mkdir -p release
+          cp build/ai-passport.bin release/
+          cp build/bootloader/bootloader.bin release/
+          cp build/partition_table/partition-table.bin release/
+          cp build/spiffs.bin release/
+          cp FLASH_GUIDE.md release/
+          echo "刷写命令:" > release/刷写说明.txt
+          echo "esptool.py -p COM3 -b 460800 --chip esp32c3 write_flash \\" >> release/刷写说明.txt
+          echo "  0x0 bootloader.bin \\" >> release/刷写说明.txt
+          echo "  0x8000 partition-table.bin \\" >> release/刷写说明.txt
+          echo "  0x10000 ai-passport.bin \\" >> release/刷写说明.txt
+          echo "  0x1F0000 spiffs.bin" >> release/刷写说明.txt
+
+      - name: Upload release zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-passport-ebook-release
+          path: release/
+          if-no-files-found: error

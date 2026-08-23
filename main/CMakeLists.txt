@@ -6,6 +6,8 @@ idf_component_register(
          "demo_button.c"
          "demo_audio.c"
          "demo_battery.c"
+         "demo_ebook.c"
+         "ebook_reader.c"
     INCLUDE_DIRS "."
-    REQUIRES bsp
+    REQUIRES bsp spiffs nvs_flash
 )
