@@ -71,7 +71,7 @@ void demo_ebook_enter(void) {
 
     // 底部页码信息
     s_page_info = lv_label_create(s_scr);
-    lv_obj_set_style_text_font(s_page_info, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(s_page_info, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_page_info, lv_color_hex(UI_SKY_DARK), 0);
     lv_obj_align(s_page_info, LV_ALIGN_BOTTOM_MID, 0, -8);
     lv_label_set_text(s_page_info, "-- / --");
