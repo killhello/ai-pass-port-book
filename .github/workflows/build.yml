@@ -24,23 +24,26 @@ jobs:
             # 生成 SPIFFS 镜像 (6MB 分区, 数据目录 spiffs_data)
             python $IDF_PATH/components/spiffs/spiffsgen.py \
               0x610000 spiffs_data build/spiffs.bin
+            # 列出 build 产物便于排查
+            ls -la build/*.bin build/bootloader/*.bin build/partition_table/*.bin 2>/dev/null || true
+            cat build/flasher_args.json 2>/dev/null || true
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ai-passport-ebook-firmware
           path: |
-            build/ai-passport.bin
+            build/FoloToy-AI-Passport.bin
             build/bootloader/bootloader.bin
             build/partition_table/partition-table.bin
             build/spiffs.bin
-            build/flash_args
+            build/flasher_args.json
           if-no-files-found: error
 
       - name: Create release zip
         run: |
           mkdir -p release
-          cp build/ai-passport.bin release/
+          cp build/FoloToy-AI-Passport.bin release/firmware.bin
           cp build/bootloader/bootloader.bin release/
           cp build/partition_table/partition-table.bin release/
           cp build/spiffs.bin release/
@@ -49,7 +52,7 @@ jobs:
           echo "esptool.py -p COM3 -b 460800 --chip esp32c3 write_flash \\" >> release/刷写说明.txt
           echo "  0x0 bootloader.bin \\" >> release/刷写说明.txt
           echo "  0x8000 partition-table.bin \\" >> release/刷写说明.txt
-          echo "  0x10000 ai-passport.bin \\" >> release/刷写说明.txt
+          echo "  0x10000 firmware.bin \\" >> release/刷写说明.txt
           echo "  0x1F0000 spiffs.bin" >> release/刷写说明.txt
 
       - name: Upload release zip
