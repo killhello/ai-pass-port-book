@@ -64,7 +64,7 @@ SPIFFS 镜像输出：
 ### 4. 合并为单文件镜像（推荐，避免漏刷）
 
 ```bash
-python -m esptool --chip esp32c3 merge-bin -o build/flash_all.bin \
+python -m esptool --chip esp32c3 merge_bin -o build/flash_all.bin \
   --flash_mode dio --flash_freq 80m --flash_size 8MB \
   0x0 build/bootloader/bootloader.bin \
   0x8000 build/partition_table/partition-table.bin \
