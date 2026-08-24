@@ -133,41 +133,16 @@ void app_main(void) {
         return;
     }
 
-    // 用 LVGL 做颜色测试
+    // 锁住 LVGL,用直接 panel 操作播放开机动画
+    bsp_lvgl_lock(1000);
+    boot_animation_play();
+    bsp_lvgl_unlock();
+
+    // 显示 Hello!
     if (bsp_lvgl_lock(1000)) {
         lv_obj_t *scr = lv_screen_active();
-
-        // 红色
-        lv_obj_set_style_bg_color(scr, lv_color_hex(0xFF0000), 0);
-        lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
-        bsp_lvgl_unlock();
-        ESP_LOGI(TAG, "红色");
-        vTaskDelay(pdMS_TO_TICKS(3000));
-
-        // 绿色
-        bsp_lvgl_lock(1000);
-        lv_obj_set_style_bg_color(scr, lv_color_hex(0x00FF00), 0);
-        bsp_lvgl_unlock();
-        ESP_LOGI(TAG, "绿色");
-        vTaskDelay(pdMS_TO_TICKS(3000));
-
-        // 蓝色
-        bsp_lvgl_lock(1000);
-        lv_obj_set_style_bg_color(scr, lv_color_hex(0x0000FF), 0);
-        bsp_lvgl_unlock();
-        ESP_LOGI(TAG, "蓝色");
-        vTaskDelay(pdMS_TO_TICKS(3000));
-
-        // 白色
-        bsp_lvgl_lock(1000);
-        lv_obj_set_style_bg_color(scr, lv_color_hex(0xFFFFFF), 0);
-        bsp_lvgl_unlock();
-        ESP_LOGI(TAG, "白色");
-        vTaskDelay(pdMS_TO_TICKS(3000));
-
-        // 显示 Hello!
-        bsp_lvgl_lock(1000);
         lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
         lv_obj_t *label = lv_label_create(scr);
         lv_label_set_text(label, "Hello!");
         lv_obj_center(label);

@@ -1,63 +1,79 @@
-// 开机动画 - 用小缓冲逐行填充,不依赖 SPIFFS,不依赖 malloc
+// 开机动画 - 从 SPIFFS 读取 RGB565 帧并播放
 #include "boot_animation.h"
 #include "bsp_display.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_log.h"
+#include "esp_spiffs.h"
+#include "esp_vfs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <stdio.h>
 #include <string.h>
+#include <dirent.h>
 
 static const char *TAG = "boot_anim";
 
 #define SCREEN_W 240
 #define SCREEN_H 320
-#define ROW_SIZE (SCREEN_W * 2)  // 一行 480 字节
+#define CHUNK_ROWS 20
+#define CHUNK_SIZE (SCREEN_W * CHUNK_ROWS * 2)
 
-static uint8_t s_row[ROW_SIZE];  // 静态分配,不用 malloc
+static uint8_t s_buf[CHUNK_SIZE];
 
-static void fill_color(uint16_t rgb565_be_hi, uint16_t rgb565_be_lo) {
-    esp_lcd_panel_handle_t panel = bsp_display_panel();
-    if (!panel) {
-        ESP_LOGE(TAG, "panel NULL");
-        return;
+static int count_frames(void) {
+    DIR *dir = opendir("/spiffs");
+    if (!dir) return 0;
+    int count = 0;
+    struct dirent *ent;
+    while ((ent = readdir(dir))) {
+        if (strstr(ent->d_name, "boot_") && strstr(ent->d_name, ".bin"))
+            count++;
     }
-    for (int i = 0; i < ROW_SIZE; i += 2) {
-        s_row[i] = rgb565_be_hi;
-        s_row[i+1] = rgb565_be_lo;
-    }
-    for (int y = 0; y < SCREEN_H; y++) {
-        esp_lcd_panel_draw_bitmap(panel, 0, y, SCREEN_W, y + 1, s_row);
-    }
+    closedir(dir);
+    return count;
 }
 
 bool boot_animation_play(void) {
     ESP_LOGI(TAG, "=== 开机动画开始 ===");
 
     esp_lcd_panel_handle_t panel = bsp_display_panel();
-    ESP_LOGI(TAG, "panel=%p", panel);
     if (!panel) {
-        ESP_LOGE(TAG, "显示面板未初始化,跳过开机动画");
+        ESP_LOGE(TAG, "panel NULL, 跳过");
         return false;
     }
 
-    ESP_LOGI(TAG, "红色...");
-    fill_color(0xF8, 0x00);  // R5=11111 G6=000000 B5=00000
-    vTaskDelay(pdMS_TO_TICKS(3000));
-
-    ESP_LOGI(TAG, "绿色...");
-    fill_color(0x07, 0xE0);  // R5=00000 G6=111111 B5=00000
-    vTaskDelay(pdMS_TO_TICKS(3000));
-
-    ESP_LOGI(TAG, "蓝色...");
-    fill_color(0x00, 0x1F);  // R5=00000 G6=000000 B5=11111
-    vTaskDelay(pdMS_TO_TICKS(3000));
-
-    ESP_LOGI(TAG, "白色...");
-    memset(s_row, 0xFF, ROW_SIZE);
-    for (int y = 0; y < SCREEN_H; y++) {
-        esp_lcd_panel_draw_bitmap(panel, 0, y, SCREEN_W, y + 1, s_row);
+    int frame_count = count_frames();
+    ESP_LOGI(TAG, "找到 %d 帧", frame_count);
+    if (frame_count == 0) {
+        ESP_LOGW(TAG, "没有开机动画帧,跳过");
+        return false;
     }
-    vTaskDelay(pdMS_TO_TICKS(3000));
+
+    for (int i = 0; i < frame_count; i++) {
+        char path[32];
+        snprintf(path, sizeof(path), "/spiffs/boot_%03d.bin", i);
+
+        FILE *f = fopen(path, "rb");
+        if (!f) {
+            ESP_LOGW(TAG, "无法打开 %s", path);
+            continue;
+        }
+
+        for (int y = 0; y < SCREEN_H; y += CHUNK_ROWS) {
+            int rows = (y + CHUNK_ROWS <= SCREEN_H) ? CHUNK_ROWS : (SCREEN_H - y);
+            size_t need = (size_t)SCREEN_W * rows * 2;
+            size_t got = fread(s_buf, 1, need, f);
+            if (got != need) {
+                ESP_LOGW(TAG, "%s 读取不足: 需要 %zu 得到 %zu", path, need, got);
+                break;
+            }
+            esp_lcd_panel_draw_bitmap(panel, 0, y, SCREEN_W, y + rows, s_buf);
+        }
+        fclose(f);
+
+        if (i == 0) ESP_LOGI(TAG, "第一帧已显示: %s", path);
+        vTaskDelay(pdMS_TO_TICKS(100));  // 10fps
+    }
 
     ESP_LOGI(TAG, "=== 开机动画结束 ===");
     return true;
