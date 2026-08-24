@@ -33,6 +33,7 @@ static const demo_entry_t DEMOS[] = {
 
 // 各外设初始化结果:失败的项在菜单里标 [FAIL] 且不允许进入。
 static bool s_ok[DEMO_COUNT];
+static bool s_spiffs_ok;           // SPIFFS 是否挂载成功(决定 E-Book 是否可进入)
 
 static lv_obj_t *s_menu_scr;
 static lv_obj_t *s_cards[DEMO_COUNT];
@@ -108,13 +109,27 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
 void app_main(void) {
     ESP_LOGI(TAG, "=== 启动 ===");
 
+    bsp_i2c_init();
+    bsp_i2c_scan();
+
+    // NVS(电子书阅读进度)。首次使用或版本变化时擦除后重试。
+    esp_err_t nvs_err = nvs_flash_init();
+    if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGW(TAG, "NVS 需要重格式化: %s", esp_err_to_name(nvs_err));
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        nvs_err = nvs_flash_init();
+    }
+    if (nvs_err != ESP_OK) {
+        ESP_LOGW(TAG, "NVS 初始化失败: %s(进度保存不可用)", esp_err_to_name(nvs_err));
+    }
+
     if (bsp_display_init() != ESP_OK) {
         ESP_LOGE(TAG, "显示初始化失败");
         return;
     }
     bsp_display_backlight(100);
 
-    // SPIFFS 挂载
+    // SPIFFS 挂载(电子书 + 开机动画帧)
     esp_vfs_spiffs_conf_t spiffs_conf = {
         .base_path = "/spiffs",
         .partition_label = NULL,
@@ -122,34 +137,32 @@ void app_main(void) {
         .format_if_mount_failed = false,
     };
     esp_err_t err = esp_vfs_spiffs_register(&spiffs_conf);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "SPIFFS 挂载失败: %s", esp_err_to_name(err));
+    s_spiffs_ok = (err == ESP_OK);
+    if (!s_spiffs_ok) {
+        // 镜像缺失/损坏只降级:跳过开机动画、E-Book 标 [FAIL],绝不重启。
+        ESP_LOGW(TAG, "SPIFFS 挂载失败: %s(请确认已刷写 spiffs.bin 到 0x310000)",
+                 esp_err_to_name(err));
     } else {
         ESP_LOGI(TAG, "SPIFFS 挂载成功");
     }
+
+    // 在 LVGL 启动前用直接 panel 操作播放开机动画,
+    // 避免 LVGL 任务并发刷新同一 panel。
+    boot_animation_play();
 
     if (!bsp_lvgl_init()) {
         ESP_LOGE(TAG, "LVGL 初始化失败");
         return;
     }
 
-    // 锁住 LVGL,用直接 panel 操作播放开机动画
-    bsp_lvgl_lock(1000);
-    boot_animation_play();
-    bsp_lvgl_unlock();
+    // 其余外设单项失败不阻塞:菜单里标 [FAIL],其他项照常可测。
+    s_ok[0] = true;                                   // Display 已确认可用
+    s_ok[1] = (bsp_button_init(on_key, NULL) == ESP_OK);
+    s_ok[2] = (bsp_audio_init() == ESP_OK);
+    s_ok[3] = (bsp_battery_init() == ESP_OK);
+    s_ok[4] = s_spiffs_ok;
 
-    // 显示 Hello!
-    if (bsp_lvgl_lock(1000)) {
-        lv_obj_t *scr = lv_screen_active();
-        lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), 0);
-        lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
-        lv_obj_t *label = lv_label_create(scr);
-        lv_label_set_text(label, "Hello!");
-        lv_obj_center(label);
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_20, 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
-        bsp_lvgl_unlock();
-    }
+    if (bsp_lvgl_lock(1000)) { enter_menu(); bsp_lvgl_unlock(); }
 
     ESP_LOGI(TAG, "=== 启动完成 ===");
 }

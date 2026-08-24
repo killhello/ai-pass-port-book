@@ -42,18 +42,37 @@ idf.py build
 ```
 
 编译成功后，固件文件位于 `build/` 目录：
-- `build/ai-passport.bin` —— 主固件（应用程序）
+- `build/FoloToy-AI-Passport.bin` —— 主固件（应用程序）
 - `build/bootloader/bootloader.bin` —— Bootloader
 - `build/partition_table/partition-table.bin` —— 分区表
 
 ### 3. 构建 SPIFFS 镜像（电子书数据分区）
 
 ```bash
-idf.py spiffsgen
+python $IDF_PATH/components/spiffs/spiffsgen.py 0x4F0000 spiffs_data build/spiffs.bin \
+  --page-size 256 --block-size 4096 \
+  --obj-name-len 32 --meta-len 4 \
+  --use-magic --use-magic-length --use-mtime
 ```
+
+> 参数必须与 sdkconfig.defaults 中 SPIFFS 配置一致（OBJ_NAME_LEN=32、META_LEN=4、
+> USE_MAGIC、USE_MAGIC_LENGTH、USE_MTIME），否则设备上会挂载失败。
 
 SPIFFS 镜像输出：
 - `build/spiffs.bin` —— SPIFFS 文件系统镜像
+
+### 4. 合并为单文件镜像（推荐，避免漏刷）
+
+```bash
+python -m esptool --chip esp32c3 merge-bin -o build/flash_all.bin \
+  --flash_mode dio --flash_freq 40m --flash_size 8MB \
+  0x0 build/bootloader/bootloader.bin \
+  0x8000 build/partition_table/partition-table.bin \
+  0x10000 build/FoloToy-AI-Passport.bin \
+  0x310000 build/spiffs.bin
+```
+
+GitHub Actions 构建产物已自动包含 `flash_all.bin`。
 
 > 注意：电子书文件需要放在 `spiffs_data/` 目录下，文件名为 `book.txt`。
 > 当前已提供示例文件 `spiffs_data/book.txt`（约 30KB）。
@@ -68,35 +87,43 @@ idf.py flash monitor
 
 这会自动刷写 bootloader、分区表、应用固件和 SPIFFS，并打开串口监视器。
 
-### 方式二：分别刷写各部分
+### 方式二：单文件刷写（GitHub 产物，推荐）
+
+```bash
+# 先擦除一次,清除旧固件/旧分区表残留(强烈建议)
+esptool.py --chip esp32c3 -p COM3 erase_flash
+
+# 一次性刷入全部内容
+esptool.py --chip esp32c3 -p COM3 -b 460800 write_flash 0x0 flash_all.bin
+```
+
+### 方式三：分别刷写各部分
 
 ```bash
 # 刷写 bootloader (偏移 0x0)
 esptool.py -p COM3 -b 460800 write_flash 0x0 build/bootloader/bootloader.bin
 
-# 刷写分区表 (偏移 0x8000)
+# 刷写分区表 (偏移 0x8000) —— 必须刷!漏刷会导致无限重启
 esptool.py -p COM3 -b 460800 write_flash 0x8000 build/partition_table/partition-table.bin
 
 # 刷写主固件 (偏移 0x10000)
-esptool.py -p COM3 -b 460800 write_flash 0x10000 build/ai-passport.bin
+esptool.py -p COM3 -b 460800 write_flash 0x10000 build/FoloToy-AI-Passport.bin
 
 # 刷写 SPIFFS 数据分区 (偏移 0x310000)
 esptool.py -p COM3 -b 460800 write_flash 0x310000 build/spiffs.bin
 ```
 
 > 将 `COM3` 替换为实际的串口号。
-> Windows 下在设备管理器中查看，Linux 下通常是 `/dev/ttyUSB0`。
 
-### 方式三：仅更新电子书（不刷固件）
+### 方式四：仅更新电子书（不刷固件）
 
 如果只是想替换电子书内容，只需重新生成并刷写 SPIFFS 分区：
 
 ```bash
 # 1. 把新的 book.txt 放到 spiffs_data/ 目录
-# 2. 重新生成 SPIFFS 镜像
-idf.py spiffsgen
+# 2. 重新生成 SPIFFS 镜像(命令见上文,含完整参数)
 # 3. 只刷写 SPIFFS 分区
-esptool.py -p COM3 write_flash 0x310000 build/spiffs.bin
+esptool.py --chip esp32c3 -p COM3 write_flash 0x310000 build/spiffs.bin
 ```
 
 ## 四、分区表布局
@@ -144,7 +171,7 @@ idf.py build
 
 1. 将 `.txt` 文件（UTF-8 编码）重命名为 `book.txt`
 2. 放入 `spiffs_data/` 目录
-3. 执行 `idf.py spiffsgen` 生成镜像
+3. 执行 spiffsgen 命令生成镜像(见上文,含完整参数)
 4. 执行 `esptool.py write_flash 0x310000 build/spiffs.bin` 刷写
 
 ## 七、按键操作
