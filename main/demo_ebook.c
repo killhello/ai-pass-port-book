@@ -27,7 +27,7 @@ static lv_font_t *s_cn_font = NULL;  // 中文字体(运行时从 SPIFFS 加载)
 
 // 尝试加载中文字体;失败返回 NULL,UI 回退到 montserrat
 static lv_font_t *try_load_cn_font(void) {
-    lv_font_t *font = lv_font_load(CN_FONT_PATH);
+    lv_font_t *font = lv_binfont_create(CN_FONT_PATH);
     if (font) {
         ESP_LOGI(TAG, "中文字体加载成功: %s", CN_FONT_PATH);
     } else {
@@ -126,7 +126,7 @@ void demo_ebook_exit(void) {
 
     // 释放中文字体
     if (s_cn_font) {
-        lv_font_free(s_cn_font);
+        lv_binfont_destroy(s_cn_font);
         s_cn_font = NULL;
     }
 

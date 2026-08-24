@@ -14,35 +14,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate Chinese font (Noto Sans SC)
-        run: |
-          # 用 Node 20 (Ubuntu 自带的 Node 12 太老, lv_font_conv 跑不起来)
-          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-          sudo apt-get install -y nodejs
-          sudo npm install -g lv_font_conv@^1.5.2
-
-          # 下载思源黑体 TTF 版本 (lv_font_conv 只支持 TTF,不支持 OTF)
-          curl -fL -o /tmp/NotoSansSC.ttf \
-            "https://github.com/googlefonts/noto-cjk/raw/main/Sans/Variable/TTF/Subset/NotoSansSC-VF.ttf" || \
-          curl -fL -o /tmp/NotoSansSC.ttf \
-            "https://github.com/vercel/satori/raw/main/test/assets/fonts/NotoSansSC-Regular.ttf"
-
-          mkdir -p spiffs_data/fonts
-
-          # 生成 16px 中文字体 (用于正文) — 包含 ASCII + CJK 标点 + 常用汉字
-          lv_font_conv --bpp 2 --size 16 \
-            --font /tmp/NotoSansSC.ttf \
-            -r 0x20-0x7F \
-            -r 0x3000-0x303F \
-            -r 0x4E00-0x9FA0 \
-            -r 0xFF00-0xFFEF \
-            --format bin \
-            --no-compress \
-            -o spiffs_data/fonts/NotoSansSC_16.bin
-
-          echo "字体文件大小:"
-          ls -lh spiffs_data/fonts/
-
       - name: Build ESP-IDF firmware
         uses: espressif/esp-idf-ci-action@v1
         with:
