@@ -52,11 +52,11 @@ idf.py build
 python $IDF_PATH/components/spiffs/spiffsgen.py 0x4F0000 spiffs_data build/spiffs.bin \
   --page-size 256 --block-size 4096 \
   --obj-name-len 32 --meta-len 4 \
-  --use-magic --use-magic-length --use-mtime
+  --use-magic --use-magic-len
 ```
 
 > 参数必须与 sdkconfig.defaults 中 SPIFFS 配置一致（OBJ_NAME_LEN=32、META_LEN=4、
-> USE_MAGIC、USE_MAGIC_LENGTH、USE_MTIME），否则设备上会挂载失败。
+> USE_MAGIC、USE_MAGIC_LENGTH），否则设备上会挂载失败。
 
 SPIFFS 镜像输出：
 - `build/spiffs.bin` —— SPIFFS 文件系统镜像
@@ -65,7 +65,7 @@ SPIFFS 镜像输出：
 
 ```bash
 python -m esptool --chip esp32c3 merge-bin -o build/flash_all.bin \
-  --flash_mode dio --flash_freq 40m --flash_size 8MB \
+  --flash_mode dio --flash_freq 80m --flash_size 8MB \
   0x0 build/bootloader/bootloader.bin \
   0x8000 build/partition_table/partition-table.bin \
   0x10000 build/FoloToy-AI-Passport.bin \
