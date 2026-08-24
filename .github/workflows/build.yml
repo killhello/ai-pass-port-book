@@ -16,21 +16,20 @@ jobs:
 
       - name: Generate Chinese font (Noto Sans SC)
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq nodejs npm fonttools
+          # 用 Node 20 (Ubuntu 自带的 Node 12 太老, lv_font_conv 跑不起来)
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+          sudo apt-get install -y nodejs
           sudo npm install -g lv_font_conv@^1.5.2
 
           # 下载思源黑体 TTF 版本 (lv_font_conv 只支持 TTF,不支持 OTF)
           curl -fL -o /tmp/NotoSansSC.ttf \
             "https://github.com/googlefonts/noto-cjk/raw/main/Sans/Variable/TTF/Subset/NotoSansSC-VF.ttf" || \
           curl -fL -o /tmp/NotoSansSC.ttf \
-            "https://github.com/vercel/satori/raw/main/test/assets/fonts/NotoSansSC-Regular.ttf" || \
-          curl -fSL -o /tmp/NotoSansSC.ttf \
-            "https://github.com/adobe-fonts/source-han-sans/raw/release/SubsetOTF/CN/SourceHanSansCN-Regular.otf"
+            "https://github.com/vercel/satori/raw/main/test/assets/fonts/NotoSansSC-Regular.ttf"
 
           mkdir -p spiffs_data/fonts
 
-          # 生成 16px 中文字体 (用于正文) — 包含 ASCII + 常用标点 + 3500 常用汉字
-          # 常用字范围覆盖 99.8% 的日常中文使用,体积约 700KB
+          # 生成 16px 中文字体 (用于正文) — 包含 ASCII + CJK 标点 + 常用汉字
           lv_font_conv --bpp 2 --size 16 \
             --font /tmp/NotoSansSC.ttf \
             -r 0x20-0x7F \
@@ -50,12 +49,31 @@ jobs:
           esp_idf_version: v5.5.3
           target: esp32c3
           command: |
-            idf.py build
+            # 严格错误检查
+            set -euo pipefail
+
+            echo "=== 开始构建 ==="
+            idf.py build 2>&1 | tee /tmp/build.log
+            echo "=== 构建完成,检查产物 ==="
+
+            # 确认固件 bin 存在
+            if [ ! -f "build/FoloToy-AI-Passport.bin" ]; then
+              echo "错误: 固件文件 build/FoloToy-AI-Passport.bin 不存在!"
+              echo "build 目录内容:"
+              ls -la build/
+              exit 1
+            fi
+            echo "固件大小: $(ls -lh build/FoloToy-AI-Passport.bin | awk '{print $5}')"
+
             # 生成 SPIFFS 镜像 (约 7MB 分区, 数据目录 spiffs_data)
+            echo "=== 生成 SPIFFS 镜像 ==="
             python $IDF_PATH/components/spiffs/spiffsgen.py \
               0x6F0000 spiffs_data build/spiffs.bin
-            # 列出 build 产物便于排查
-            ls -la build/*.bin build/bootloader/*.bin build/partition_table/*.bin 2>/dev/null || true
+
+            # 列出所有 build 产物
+            echo "=== build 产物列表 ==="
+            find build -name "*.bin" -type f | sort
+            echo "=== flasher_args.json ==="
             cat build/flasher_args.json 2>/dev/null || true
 
       - name: Upload firmware artifacts
@@ -72,18 +90,36 @@ jobs:
 
       - name: Create release zip
         run: |
+          set -euo pipefail
+
+          # 先检查所有必需文件
+          echo "=== 检查构建产物 ==="
+          for f in "build/FoloToy-AI-Passport.bin" \
+                   "build/bootloader/bootloader.bin" \
+                   "build/partition_table/partition-table.bin" \
+                   "build/spiffs.bin"; do
+            if [ ! -f "$f" ]; then
+              echo "错误: 缺少文件 $f"
+              exit 1
+            fi
+            echo "  OK: $f"
+          done
+
           mkdir -p release
           cp build/FoloToy-AI-Passport.bin release/firmware.bin
           cp build/bootloader/bootloader.bin release/
           cp build/partition_table/partition-table.bin release/
           cp build/spiffs.bin release/
-          cp FLASH_GUIDE.md release/
+          cp FLASH_GUIDE.md release/ 2>/dev/null || true
           echo "刷写命令:" > release/刷写说明.txt
           echo "esptool.py -p COM3 -b 460800 --chip esp32c3 write_flash \\" >> release/刷写说明.txt
           echo "  0x0 bootloader.bin \\" >> release/刷写说明.txt
           echo "  0x8000 partition-table.bin \\" >> release/刷写说明.txt
           echo "  0x10000 firmware.bin \\" >> release/刷写说明.txt
           echo "  0x110000 spiffs.bin" >> release/刷写说明.txt
+
+          echo "=== release 目录 ==="
+          ls -lh release/
 
       - name: Upload release zip
         uses: actions/upload-artifact@v4
