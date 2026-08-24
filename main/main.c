@@ -104,68 +104,31 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
 }
 
 void app_main(void) {
-    ESP_LOGI(TAG, "FoloToy-Card BSP demo 启动");
+    ESP_LOGI(TAG, "=== 最小启动测试 ===");
 
-    // ---- NVS 初始化(电子书进度保存需要) ----
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_LOGW(TAG, "NVS 需要擦除重建");
-        if (nvs_flash_erase() == ESP_OK) {
-            err = nvs_flash_init();
-        }
-    }
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "NVS 初始化失败: %s (不影响启动)", esp_err_to_name(err));
-    }
-
-    // ---- SPIFFS 初始化(电子书存储需要) ----
-    esp_vfs_spiffs_conf_t spiffs_conf = {
-        .base_path = "/spiffs",
-        .partition_label = NULL,
-        .max_files = 5,
-        .format_if_mount_failed = false,   // 失败不自动格式化,避免误删数据
-    };
-    err = esp_vfs_spiffs_register(&spiffs_conf);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "SPIFFS 挂载失败: %s (跳过电子书和开机动画)", esp_err_to_name(err));
-    } else {
-        size_t total = 0, used = 0;
-        esp_spiffs_info(NULL, &total, &used);
-        ESP_LOGI(TAG, "SPIFFS 已挂载: 总 %lu 字节, 已用 %lu 字节",
-                 (unsigned long)total, (unsigned long)used);
-    }
-
-    bsp_i2c_init();
-    bsp_i2c_scan();
-
-    // 屏幕是本 demo 的 UI 载体,失败就没有菜单可言 —— 打清楚日志后退出,
-    // 不做"串口菜单"降级(那会让本文件复杂一倍,违背参考示例的初衷)。
+    // 只初始化屏幕 + LVGL,其他全部跳过,排查 boot loop
     if (bsp_display_init() != ESP_OK) {
-        ESP_LOGE(TAG, "显示初始化失败,demo 无法继续。"
-                      "检查 SPI 接线(MOSI=%d SCLK=%d CS=%d DC=%d BL=%d)",
-                 BSP_LCD_MOSI, BSP_LCD_SCLK, BSP_LCD_CS, BSP_LCD_DC, BSP_LCD_BL);
+        ESP_LOGE(TAG, "显示初始化失败");
         return;
     }
     bsp_display_backlight(100);
+    ESP_LOGI(TAG, "屏幕初始化成功");
 
-    // ---- 开机动画 (在 LVGL 初始化之前,直接操作面板,速度最快) ----
-    boot_animation_play();
-
-    // 初始化 LVGL
     if (!bsp_lvgl_init()) {
         ESP_LOGE(TAG, "LVGL 初始化失败");
         return;
     }
+    ESP_LOGI(TAG, "LVGL 初始化成功");
 
-    // 其余外设单项失败不阻塞:菜单里标 [FAIL],其他项照常可测。
-    s_ok[0] = true;                                   // Display 已确认可用
-    s_ok[1] = (bsp_button_init(on_key, NULL) == ESP_OK);
-    s_ok[2] = (bsp_audio_init() == ESP_OK);
-    s_ok[3] = (bsp_battery_init() == ESP_OK);
-    s_ok[4] = true;                                   // E-Book 阅读器
+    // 显示一个简单文字
+    if (bsp_lvgl_lock(1000)) {
+        lv_obj_t *scr = lv_screen_active();
+        lv_obj_t *label = lv_label_create(scr);
+        lv_label_set_text(label, "Hello!");
+        lv_obj_center(label);
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_20, 0);
+        bsp_lvgl_unlock();
+    }
 
-    if (bsp_lvgl_lock(1000)) { enter_menu(); bsp_lvgl_unlock(); }
-
-    ESP_LOGI(TAG, "就绪:Display=%d Button=%d Audio=%d Battery=%d EBook=%d",
-             s_ok[0], s_ok[1], s_ok[2], s_ok[3], s_ok[4]);
+    ESP_LOGI(TAG, "=== 启动完成 ===");
 }

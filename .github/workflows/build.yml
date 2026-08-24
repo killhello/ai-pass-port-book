@@ -27,7 +27,7 @@ jobs:
             test -f build/FoloToy-AI-Passport.bin || { echo "FAIL: firmware not found"; ls -la build/; exit 1; }
             ls -lh build/FoloToy-AI-Passport.bin
 
-            python $IDF_PATH/components/spiffs/spiffsgen.py 0x6F0000 spiffs_data build/spiffs.bin
+            python $IDF_PATH/components/spiffs/spiffsgen.py 0x4F0000 spiffs_data build/spiffs.bin
 
             echo "=== Build artifacts ==="
             find build -name "*.bin" -type f | sort
@@ -72,7 +72,7 @@ jobs:
           echo "  0x0 bootloader.bin \\" >> release/刷写说明.txt
           echo "  0x8000 partition-table.bin \\" >> release/刷写说明.txt
           echo "  0x10000 firmware.bin \\" >> release/刷写说明.txt
-          echo "  0x110000 spiffs.bin" >> release/刷写说明.txt
+          echo "  0x310000 spiffs.bin" >> release/刷写说明.txt
 
           echo "=== release 目录 ==="
           ls -lh release/
