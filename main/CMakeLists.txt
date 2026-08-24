@@ -1,5 +1,5 @@
 idf_component_register(
-         "main.c"
+    SRCS "main.c"
          "ui_pixel.c"
          "ui_pixel_math.c"
          "demo_display.c"
