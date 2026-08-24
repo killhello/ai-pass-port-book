@@ -104,23 +104,39 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
 }
 
 void app_main(void) {
-    ESP_LOGI(TAG, "=== 最小启动测试 ===");
+    ESP_LOGI(TAG, "=== 启动 ===");
 
-    // 只初始化屏幕 + LVGL,其他全部跳过,排查 boot loop
+    // 屏幕初始化
     if (bsp_display_init() != ESP_OK) {
         ESP_LOGE(TAG, "显示初始化失败");
         return;
     }
     bsp_display_backlight(100);
-    ESP_LOGI(TAG, "屏幕初始化成功");
 
+    // SPIFFS 挂载(开机动画帧存储在这里)
+    esp_vfs_spiffs_conf_t spiffs_conf = {
+        .base_path = "/spiffs",
+        .partition_label = NULL,
+        .max_files = 5,
+        .format_if_mount_failed = false,
+    };
+    esp_err_t err = esp_vfs_spiffs_register(&spiffs_conf);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "SPIFFS 挂载失败: %s", esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "SPIFFS 挂载成功");
+    }
+
+    // 开机动画(在 LVGL 之前,直接操作 LCD 面板)
+    boot_animation_play();
+
+    // 初始化 LVGL
     if (!bsp_lvgl_init()) {
         ESP_LOGE(TAG, "LVGL 初始化失败");
         return;
     }
-    ESP_LOGI(TAG, "LVGL 初始化成功");
 
-    // 显示一个简单文字
+    // 显示提示文字
     if (bsp_lvgl_lock(1000)) {
         lv_obj_t *scr = lv_screen_active();
         lv_obj_t *label = lv_label_create(scr);
