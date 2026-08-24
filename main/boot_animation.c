@@ -72,7 +72,7 @@ bool boot_animation_play(void) {
         fclose(f);
 
         if (i == 0) ESP_LOGI(TAG, "第一帧已显示: %s", path);
-        vTaskDelay(pdMS_TO_TICKS(100));  // 10fps
+        vTaskDelay(pdMS_TO_TICKS(77));  // 13fps
     }
 
     ESP_LOGI(TAG, "=== 开机动画结束 ===");

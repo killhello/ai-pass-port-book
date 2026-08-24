@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """
 开机动画帧转换工具
-将 JPG 视频帧转换为 ESP32 可直接播放的 RGB565 格式
+将视频帧(PNG/JPG)转换为 ESP32 可直接播放的 RGB565 原始帧。
+
+竖屏(240x320)播放横版视频时使用 pillarbox:等宽缩放、上下留黑边,
+内容完整、正立、不变形。
 
 用法:
-    python boot_anim_convert.py <frames_dir> <output_dir> [--fps 10] [--frames 30]
+    python boot_anim_convert.py <frames_dir> <output_dir> [--frames 32] [--fps 13]
 """
 import os
 import sys
@@ -13,126 +16,104 @@ import argparse
 from pathlib import Path
 
 try:
+    import numpy as np
     from PIL import Image
 except ImportError:
-    print("需要安装 Pillow: pip install Pillow")
+    print("需要安装: pip install Pillow numpy")
     sys.exit(1)
 
 SCREEN_W = 240
 SCREEN_H = 320
 
 
-def rgb_to_rgb565(r, g, b):
-    """RGB888 转 RGB565 (16位, 大端序)"""
-    return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
-
-
-def convert_frame(jpg_path):
-    """将单帧 JPG 转换为 RGB565 原始数据"""
-    img = Image.open(jpg_path)
-    # 确保尺寸正确，缩放并居中裁剪
-    img = img.convert('RGB')
-    
-    # 按比例缩放到填满屏幕
+def convert_frame(img, mode):
+    """将 PIL 图像转换为 240x320 RGB565(大端) 原始字节"""
+    img = img.convert("RGB")
     src_w, src_h = img.size
-    scale = max(SCREEN_W / src_w, SCREEN_H / src_h)
-    new_w = int(src_w * scale)
-    new_h = int(src_h * scale)
-    img = img.resize((new_w, new_h), Image.LANCZOS)
-    
-    # 居中裁剪到 240x320
-    left = (new_w - SCREEN_W) // 2
-    top = (new_h - SCREEN_H) // 2
-    img = img.crop((left, top, left + SCREEN_W, top + SCREEN_H))
-    
-    # 转换为 RGB565 (大端序，与 ST7789 匹配)
-    pixels = img.load()
-    raw = bytearray()
-    for y in range(SCREEN_H):
-        for x in range(SCREEN_W):
-            r, g, b = pixels[x, y]
-            rgb565 = rgb_to_rgb565(r, g, b)
-            raw.extend(struct.pack('>H', rgb565))  # 大端
-    
-    return bytes(raw)
+
+    if mode == "fit":  # pillarbox:等宽缩放居中,黑边填充
+        scale = min(SCREEN_W / src_w, SCREEN_H / src_h)
+        new_w = max(1, round(src_w * scale))
+        new_h = max(1, round(src_h * scale))
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+        canvas = Image.new("RGB", (SCREEN_W, SCREEN_H), (0, 0, 0))
+        canvas.paste(img, ((SCREEN_W - new_w) // 2, (SCREEN_H - new_h) // 2))
+        img = canvas
+    else:  # fill:等比放大填满并居中裁剪
+        scale = max(SCREEN_W / src_w, SCREEN_H / src_h)
+        new_w = max(SCREEN_W, round(src_w * scale))
+        new_h = max(SCREEN_H, round(src_h * scale))
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+        left = (new_w - SCREEN_W) // 2
+        top = (new_h - SCREEN_H) // 2
+        img = img.crop((left, top, left + SCREEN_W, top + SCREEN_H))
+
+    # RGB565 大端,向量化打包
+    arr = np.asarray(img, dtype=np.uint16)
+    r = (arr[:, :, 0] & 0xF8) << 8
+    g = (arr[:, :, 1] & 0xFC) << 3
+    b = arr[:, :, 2] >> 3
+    rgb565 = (r | g | b).astype(">u2")  # 大端 uint16
+    return rgb565.tobytes()
 
 
 def main():
-    parser = argparse.ArgumentParser(description='开机动画帧转换')
-    parser.add_argument('frames_dir', help='JPG 帧目录')
-    parser.add_argument('output_dir', help='输出目录')
-    parser.add_argument('--fps', type=int, default=10, help='目标帧率 (默认 10fps)')
-    parser.add_argument('--max-frames', type=int, default=30, help='最大帧数 (默认 30)')
+    parser = argparse.ArgumentParser(description="开机动画帧转换")
+    parser.add_argument("frames_dir", help="帧图片目录")
+    parser.add_argument("output_dir", help="输出目录")
+    parser.add_argument("--fps", type=int, default=13, help="目标帧率(默认 13)")
+    parser.add_argument("--frames", type=int, default=32, help="最大帧数(默认 32)")
+    parser.add_argument("--mode", choices=["fit", "fill"], default="fit",
+                        help="fit= pillarbox 留黑边(默认); fill=填满裁剪")
     args = parser.parse_args()
 
     frames_dir = Path(args.frames_dir)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 收集所有帧文件
-    jpg_files = sorted(frames_dir.glob('*.jpg'))
-    if not jpg_files:
-        jpg_files = sorted(frames_dir.glob('*.png'))
-    
-    if not jpg_files:
+    # 清掉旧帧,避免新旧混用
+    for old in output_dir.glob("boot_*.bin"):
+        old.unlink()
+    for old in output_dir.glob("frame_index.bin"):
+        old.unlink()
+
+    files = sorted(frames_dir.glob("*.png")) or sorted(frames_dir.glob("*.jpg"))
+    if not files:
         print(f"错误: 在 {frames_dir} 中没有找到帧图片")
         return
 
-    print(f"找到 {len(jpg_files)} 帧")
-    print(f"目标帧率: {args.fps} fps")
-    print(f"最大帧数: {args.max_frames}")
+    print(f"找到 {len(files)} 帧, 目标 {args.frames} 帧 @ {args.fps}fps, 模式 {args.mode}")
 
-    # 计算抽帧步长
-    total_frames = len(jpg_files)
-    if total_frames <= args.max_frames:
-        step = 1
+    # 全程均匀抽样(含首尾)
+    n = min(args.frames, len(files))
+    if len(files) <= n:
+        idx = list(range(len(files)))
     else:
-        step = total_frames // args.max_frames
-    
-    selected = jpg_files[::step]
-    # 确保不超过 max_frames
-    if len(selected) > args.max_frames:
-        selected = selected[:args.max_frames]
-    
-    print(f"将抽取 {len(selected)} 帧")
-    duration = len(selected) / args.fps
-    print(f"动画时长: 约 {duration:.1f} 秒")
+        idx = [round(i * (len(files) - 1) / (n - 1)) for i in range(n)]
+        # 去重保序
+        seen, uniq = set(), []
+        for i in idx:
+            if i not in seen:
+                seen.add(i)
+                uniq.append(i)
+        idx = uniq
 
-    # 转换每一帧
-    total_size = 0
-    frame_info = []
-    
-    for i, jpg_path in enumerate(selected):
-        raw_data = convert_frame(jpg_path)
-        out_name = f"boot_{i:03d}.bin"
-        out_path = output_dir / out_name
-        out_path.write_bytes(raw_data)
-        
-        total_size += len(raw_data)
-        frame_info.append((out_name, len(raw_data)))
-        
-        if (i + 1) % 10 == 0 or i == len(selected) - 1:
-            print(f"  已转换 {i+1}/{len(selected)} 帧")
+    print(f"抽取 {len(idx)} 帧, 动画时长约 {len(idx)/args.fps:.2f} 秒")
 
-    # 生成帧索引文件 (frame_index.bin)
-    # 格式: uint16_t frame_count; uint32_t frame_size; 
-    index_data = struct.pack('<H', len(selected))  # 帧数(小端)
-    index_data += struct.pack('<H', args.fps)     # 帧率
-    index_data += struct.pack('<I', len(raw_data)) # 每帧大小(固定)
-    
-    index_path = output_dir / "frame_index.bin"
-    index_path.write_bytes(index_data)
-    
-    print(f"\n完成!")
-    print(f"  输出目录: {output_dir}")
-    print(f"  帧数: {len(selected)}")
-    print(f"  每帧大小: {len(raw_data)} 字节 ({len(raw_data)/1024:.1f} KB)")
-    print(f"  总大小: {total_size} 字节 ({total_size/1024:.1f} KB / {total_size/1024/1024:.2f} MB)")
-    print(f"  帧率: {args.fps} fps")
-    print(f"  时长: {duration:.1f} 秒")
-    print(f"\n  将 {output_dir} 目录下的文件复制到 spiffs_data/boot_anim/")
-    print(f"  然后重新生成 SPIFFS 镜像: idf.py spiffsgen")
+    total = 0
+    for i, fi in enumerate(idx):
+        raw = convert_frame(Image.open(files[fi]), args.mode)
+        (output_dir / f"boot_{i:03d}.bin").write_bytes(raw)
+        total += len(raw)
+        if (i + 1) % 8 == 0 or i == len(idx) - 1:
+            print(f"  已转换 {i+1}/{len(idx)}")
+
+    # 帧索引: 帧数(u16) + 帧率(u16) + 每帧大小(u32)
+    (output_dir / "frame_index.bin").write_bytes(
+        struct.pack("<HHI", len(idx), args.fps, SCREEN_W * SCREEN_H * 2))
+
+    print(f"完成! 共 {len(idx)} 帧, 总大小 {total} 字节 ({total/1048576:.2f} MB)")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

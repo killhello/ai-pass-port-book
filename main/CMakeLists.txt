@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "main.c"
+         "main.c"
          "ui_pixel.c"
          "ui_pixel_math.c"
          "demo_display.c"
@@ -9,6 +9,9 @@ idf_component_register(
          "demo_ebook.c"
          "ebook_reader.c"
          "boot_animation.c"
+         "wifi_sta.c"
+         "ai_chat.c"
+         "ai_page.c"
     INCLUDE_DIRS "."
-    REQUIRES bsp spiffs nvs_flash
+    REQUIRES bsp spiffs nvs_flash esp_wifi esp_netif esp_event esp_http_client json mbedtls
 )

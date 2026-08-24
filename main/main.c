@@ -19,6 +19,7 @@
 #include "nvs_flash.h"
 #include "esp_spiffs.h"
 #include "boot_animation.h"
+#include "ai_page.h"
 
 static const char *TAG = "main";
 
@@ -82,6 +83,16 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
     (void)user;
     if (!bsp_lvgl_lock(500)) return;
 
+    // AI 页打开时:长按 OK 返回菜单,其余按键忽略
+    if (ai_page_is_open()) {
+        if (btn == BSP_BTN_OK && ev == BSP_BTN_LONG) {
+            ai_page_close();
+            enter_menu();
+        }
+        bsp_lvgl_unlock();
+        return;
+    }
+
     if (s_active >= 0) {
         if (btn == BSP_BTN_OK && ev == BSP_BTN_LONG) {     // 统一返回
             DEMOS[s_active].exit();
@@ -102,6 +113,11 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
         } else if (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN) {
             ui_pixel_mascot_jump(s_mascot);
         }
+    } else if (ev == BSP_BTN_DOUBLE && btn == BSP_BTN_OK) {
+        // 双击 OK:向 AI 发送"你好"并显示回复(仅主菜单状态)
+        bsp_lvgl_unlock();
+        ai_page_open();
+        return;
     }
     bsp_lvgl_unlock();
 }

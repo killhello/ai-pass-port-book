@@ -49,7 +49,7 @@ idf.py build
 ### 3. 构建 SPIFFS 镜像（电子书数据分区）
 
 ```bash
-python $IDF_PATH/components/spiffs/spiffsgen.py 0x4F0000 spiffs_data build/spiffs.bin \
+python $IDF_PATH/components/spiffs/spiffsgen.py 0x670000 spiffs_data build/spiffs.bin \
   --page-size 256 --block-size 4096 \
   --obj-name-len 32 --meta-len 4 \
   --use-magic --use-magic-len
@@ -69,7 +69,7 @@ python -m esptool --chip esp32c3 merge_bin -o build/flash_all.bin \
   0x0 build/bootloader/bootloader.bin \
   0x8000 build/partition_table/partition-table.bin \
   0x10000 build/FoloToy-AI-Passport.bin \
-  0x310000 build/spiffs.bin
+  0x190000 build/spiffs.bin
 ```
 
 GitHub Actions 构建产物已自动包含 `flash_all.bin`。
@@ -109,8 +109,8 @@ esptool.py -p COM3 -b 460800 write_flash 0x8000 build/partition_table/partition-
 # 刷写主固件 (偏移 0x10000)
 esptool.py -p COM3 -b 460800 write_flash 0x10000 build/FoloToy-AI-Passport.bin
 
-# 刷写 SPIFFS 数据分区 (偏移 0x310000)
-esptool.py -p COM3 -b 460800 write_flash 0x310000 build/spiffs.bin
+# 刷写 SPIFFS 数据分区 (偏移 0x190000)
+esptool.py -p COM3 -b 460800 write_flash 0x190000 build/spiffs.bin
 ```
 
 > 将 `COM3` 替换为实际的串口号。
@@ -123,7 +123,7 @@ esptool.py -p COM3 -b 460800 write_flash 0x310000 build/spiffs.bin
 # 1. 把新的 book.txt 放到 spiffs_data/ 目录
 # 2. 重新生成 SPIFFS 镜像(命令见上文,含完整参数)
 # 3. 只刷写 SPIFFS 分区
-esptool.py --chip esp32c3 -p COM3 write_flash 0x310000 build/spiffs.bin
+esptool.py --chip esp32c3 -p COM3 write_flash 0x190000 build/spiffs.bin
 ```
 
 ## 四、分区表布局
@@ -132,8 +132,8 @@ esptool.py --chip esp32c3 -p COM3 write_flash 0x310000 build/spiffs.bin
 |------|------|----------|------|------|
 | nvs | data | 0x9000 | 24 KB | 配置/阅读进度保存 |
 | phy_init | data | 0xf000 | 4 KB | PHY 初始化数据 |
-| factory | app | 0x10000 | 3072 KB | 主应用固件 |
-| spiffs | data | 0x310000 | ~4980 KB | 电子书存储 |
+| factory | app | 0x10000 | 1536 KB | 主应用固件(含 WiFi/TLS) |
+| spiffs | data | 0x190000 | ~6700 KB | 电子书 + 字体 + 开机动画 |
 
 总 Flash: 8MB (0x800000)
 
@@ -172,7 +172,7 @@ idf.py build
 1. 将 `.txt` 文件（UTF-8 编码）重命名为 `book.txt`
 2. 放入 `spiffs_data/` 目录
 3. 执行 spiffsgen 命令生成镜像(见上文,含完整参数)
-4. 执行 `esptool.py write_flash 0x310000 build/spiffs.bin` 刷写
+4. 执行 `esptool.py write_flash 0x190000 build/spiffs.bin` 刷写
 
 ## 七、按键操作
 
