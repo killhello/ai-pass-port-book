@@ -14,6 +14,8 @@
 #include "ui_pixel.h"
 #include "lvgl.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "nvs_flash.h"
 #include "esp_spiffs.h"
 #include "boot_animation.h"
@@ -106,14 +108,13 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
 void app_main(void) {
     ESP_LOGI(TAG, "=== 启动 ===");
 
-    // 屏幕初始化
     if (bsp_display_init() != ESP_OK) {
         ESP_LOGE(TAG, "显示初始化失败");
         return;
     }
     bsp_display_backlight(100);
 
-    // SPIFFS 挂载(开机动画帧存储在这里)
+    // SPIFFS 挂载
     esp_vfs_spiffs_conf_t spiffs_conf = {
         .base_path = "/spiffs",
         .partition_label = NULL,
@@ -127,22 +128,51 @@ void app_main(void) {
         ESP_LOGI(TAG, "SPIFFS 挂载成功");
     }
 
-    // 开机动画(在 LVGL 之前,直接操作 LCD 面板)
-    boot_animation_play();
-
-    // 初始化 LVGL
     if (!bsp_lvgl_init()) {
         ESP_LOGE(TAG, "LVGL 初始化失败");
         return;
     }
 
-    // 显示提示文字
+    // 用 LVGL 做颜色测试
     if (bsp_lvgl_lock(1000)) {
         lv_obj_t *scr = lv_screen_active();
+
+        // 红色
+        lv_obj_set_style_bg_color(scr, lv_color_hex(0xFF0000), 0);
+        lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+        bsp_lvgl_unlock();
+        ESP_LOGI(TAG, "红色");
+        vTaskDelay(pdMS_TO_TICKS(3000));
+
+        // 绿色
+        bsp_lvgl_lock(1000);
+        lv_obj_set_style_bg_color(scr, lv_color_hex(0x00FF00), 0);
+        bsp_lvgl_unlock();
+        ESP_LOGI(TAG, "绿色");
+        vTaskDelay(pdMS_TO_TICKS(3000));
+
+        // 蓝色
+        bsp_lvgl_lock(1000);
+        lv_obj_set_style_bg_color(scr, lv_color_hex(0x0000FF), 0);
+        bsp_lvgl_unlock();
+        ESP_LOGI(TAG, "蓝色");
+        vTaskDelay(pdMS_TO_TICKS(3000));
+
+        // 白色
+        bsp_lvgl_lock(1000);
+        lv_obj_set_style_bg_color(scr, lv_color_hex(0xFFFFFF), 0);
+        bsp_lvgl_unlock();
+        ESP_LOGI(TAG, "白色");
+        vTaskDelay(pdMS_TO_TICKS(3000));
+
+        // 显示 Hello!
+        bsp_lvgl_lock(1000);
+        lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), 0);
         lv_obj_t *label = lv_label_create(scr);
         lv_label_set_text(label, "Hello!");
         lv_obj_center(label);
         lv_obj_set_style_text_font(label, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
         bsp_lvgl_unlock();
     }
 
