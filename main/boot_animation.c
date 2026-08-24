@@ -50,7 +50,7 @@ bool boot_animation_play(void) {
     }
 
     for (int i = 0; i < frame_count; i++) {
-        char path[32];
+        char path[64];
         snprintf(path, sizeof(path), "/spiffs/boot_anim/boot_%03d.bin", i);
 
         FILE *f = fopen(path, "rb");
