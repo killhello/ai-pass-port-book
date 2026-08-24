@@ -1,9 +1,8 @@
-// 开机动画播放 - 直接操作 LCD 面板，速度最快
+// 开机动画 - 先用代码生成测试画面,不依赖 SPIFFS
 #include "boot_animation.h"
 #include "bsp_display.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_log.h"
-#include "esp_spiffs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdio.h>
@@ -23,59 +22,46 @@ bool boot_animation_play(void) {
         return false;
     }
 
-    // 检查 SPIFFS 是否已挂载
-    size_t total = 0, used = 0;
-    esp_err_t spiffs_info = esp_spiffs_info(NULL, &total, &used);
-    ESP_LOGI(TAG, "SPIFFS info: ret=%s, total=%d, used=%d", esp_err_to_name(spiffs_info), (int)total, (int)used);
-
-    // 尝试打开第一帧
-    char path[64];
-    snprintf(path, sizeof(path), "/spiffs/boot_anim/boot_000.bin");
-    FILE *f = fopen(path, "rb");
-    if (!f) {
-        ESP_LOGW(TAG, "无法打开 %s, 跳过开机动画", path);
-        return false;
-    }
-    ESP_LOGI(TAG, "成功打开 %s", path);
-
-    // 分配帧缓冲
-    uint8_t *frame_buf = malloc(FRAME_SIZE);
-    if (!frame_buf) {
-        ESP_LOGE(TAG, "分配帧缓冲失败 (%d 字节)", FRAME_SIZE);
-        fclose(f);
+    uint8_t *buf = malloc(FRAME_SIZE);
+    if (!buf) {
+        ESP_LOGE(TAG, "分配缓冲失败");
         return false;
     }
 
-    // 读取第一帧
-    size_t n = fread(frame_buf, 1, FRAME_SIZE, f);
-    fclose(f);
-    ESP_LOGI(TAG, "读取帧数据: %d / %d 字节", (int)n, FRAME_SIZE);
-    if (n != FRAME_SIZE) {
-        ESP_LOGW(TAG, "帧数据不完整");
-        free(frame_buf);
-        return false;
+    // 测试 1: 纯红色 (RGB565: R=0xF800)
+    ESP_LOGI(TAG, "显示红色...");
+    for (int i = 0; i < FRAME_SIZE; i += 2) {
+        buf[i] = 0xF8;   // R5
+        buf[i+1] = 0x00;  // G6+B5
     }
+    esp_lcd_panel_draw_bitmap(panel, 0, 0, SCREEN_W, SCREEN_H, buf);
+    vTaskDelay(pdMS_TO_TICKS(2000));
 
-    // 显示第一帧,停留 3 秒观察
-    ESP_LOGI(TAG, "显示第一帧...");
-    esp_lcd_panel_draw_bitmap(panel, 0, 0, SCREEN_W, SCREEN_H, frame_buf);
-    vTaskDelay(pdMS_TO_TICKS(3000));
-
-    // 尝试播放剩余帧
-    for (int i = 1; i < 28; i++) {
-        snprintf(path, sizeof(path), "/spiffs/boot_anim/boot_%03d.bin", i);
-        FILE *f2 = fopen(path, "rb");
-        if (!f2) {
-            ESP_LOGW(TAG, "帧 %d 打不开,停止", i);
-            break;
-        }
-        fread(frame_buf, 1, FRAME_SIZE, f2);
-        fclose(f2);
-        esp_lcd_panel_draw_bitmap(panel, 0, 0, SCREEN_W, SCREEN_H, frame_buf);
-        vTaskDelay(pdMS_TO_TICKS(100));  // 10fps
+    // 测试 2: 纯绿色 (RGB565: G=0x07E0)
+    ESP_LOGI(TAG, "显示绿色...");
+    for (int i = 0; i < FRAME_SIZE; i += 2) {
+        buf[i] = 0x07;
+        buf[i+1] = 0xE0;
     }
+    esp_lcd_panel_draw_bitmap(panel, 0, 0, SCREEN_W, SCREEN_H, buf);
+    vTaskDelay(pdMS_TO_TICKS(2000));
 
-    free(frame_buf);
-    ESP_LOGI(TAG, "开机动画完成");
+    // 测试 3: 纯蓝色 (RGB565: B=0x001F)
+    ESP_LOGI(TAG, "显示蓝色...");
+    for (int i = 0; i < FRAME_SIZE; i += 2) {
+        buf[i] = 0x00;
+        buf[i+1] = 0x1F;
+    }
+    esp_lcd_panel_draw_bitmap(panel, 0, 0, SCREEN_W, SCREEN_H, buf);
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    // 测试 4: 白色
+    ESP_LOGI(TAG, "显示白色...");
+    memset(buf, 0xFF, FRAME_SIZE);
+    esp_lcd_panel_draw_bitmap(panel, 0, 0, SCREEN_W, SCREEN_H, buf);
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    free(buf);
+    ESP_LOGI(TAG, "颜色测试完成");
     return true;
 }
