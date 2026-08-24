@@ -5,6 +5,7 @@
 #include "ebook_reader.h"
 #include "bsp_display.h"
 #include "ui_pixel.h"
+#include "font_cn_16.h"
 #include "lvgl.h"
 #include "esp_log.h"
 #include <stdio.h>
@@ -19,22 +20,9 @@ static lv_obj_t *s_title;       // 标题
 
 static ebook_reader_t s_reader;
 static bool s_screen_off = false;  // 息屏状态
-static lv_font_t *s_cn_font = NULL;  // 中文字体(运行时从 SPIFFS 加载)
 
 // 默认电子书路径(可根据实际情况修改)
 #define DEFAULT_EBOOK_PATH  "/spiffs/book.txt"
-#define CN_FONT_PATH        "/spiffs/fonts/NotoSansSC_16.bin"
-
-// 尝试加载中文字体;失败返回 NULL,UI 回退到 montserrat
-static lv_font_t *try_load_cn_font(void) {
-    lv_font_t *font = lv_binfont_create(CN_FONT_PATH);
-    if (font) {
-        ESP_LOGI(TAG, "中文字体加载成功: %s", CN_FONT_PATH);
-    } else {
-        ESP_LOGW(TAG, "中文字体加载失败: %s (使用默认英文字体)", CN_FONT_PATH);
-    }
-    return font;
-}
 
 static void update_page_display(void) {
     if (!s_reader.is_open) {
@@ -87,15 +75,9 @@ void demo_ebook_enter(void) {
     lv_obj_align(s_page_info, LV_ALIGN_BOTTOM_MID, 0, -8);
     lv_label_set_text(s_page_info, "-- / --");
 
-    // 加载中文字体(从 SPIFFS),失败回退到默认英文字体
-    s_cn_font = try_load_cn_font();
-    if (s_cn_font) {
-        lv_obj_set_style_text_font(s_text, s_cn_font, 0);
-        lv_obj_set_style_text_font(s_page_info, s_cn_font, 0);
-    } else {
-        lv_obj_set_style_text_font(s_text, &lv_font_montserrat_14, 0);
-        lv_obj_set_style_text_font(s_page_info, &lv_font_montserrat_14, 0);
-    }
+    // 中文字体已编译进固件,直接使用
+    lv_obj_set_style_text_font(s_text, &notosanssc_16, 0);
+    lv_obj_set_style_text_font(s_page_info, &notosanssc_16, 0);
 
     lv_screen_load(s_scr);
 
@@ -122,12 +104,6 @@ void demo_ebook_exit(void) {
     if (s_reader.is_open) {
         ebook_reader_save_progress(&s_reader);
         ebook_reader_close(&s_reader);
-    }
-
-    // 释放中文字体
-    if (s_cn_font) {
-        lv_binfont_destroy(s_cn_font);
-        s_cn_font = NULL;
     }
 
     // 确保亮屏

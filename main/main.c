@@ -19,7 +19,6 @@
 #include "nvs_flash.h"
 #include "esp_spiffs.h"
 #include "boot_animation.h"
-#include "ai_page.h"
 
 static const char *TAG = "main";
 
@@ -29,6 +28,7 @@ static const demo_entry_t DEMOS[] = {
     { "Audio",   demo_audio_enter,   demo_audio_exit,   demo_audio_key   },
     { "Battery", demo_battery_enter, demo_battery_exit, demo_battery_key },
     { "E-Book",  demo_ebook_enter,   demo_ebook_exit,   demo_ebook_key   },
+    { "AI",      demo_ai_enter,      demo_ai_exit,      demo_ai_key      },
 };
 #define DEMO_COUNT (sizeof(DEMOS) / sizeof(DEMOS[0]))
 
@@ -59,7 +59,7 @@ static void menu_build(void) {
 
     for (size_t i = 0; i < DEMO_COUNT; i++) {
         int x = 11 + (int)(i % 2) * 112;
-        int y = 58 + (int)(i / 2) * 86;
+        int y = 46 + (int)(i / 2) * 78;
         s_cards[i] = ui_pixel_panel_create(s_menu_scr, x, y, 102, 72, UI_PAPER);
         s_rows[i] = lv_label_create(s_cards[i]);
         lv_obj_set_style_text_font(s_rows[i], &lv_font_montserrat_20, 0);
@@ -67,7 +67,7 @@ static void menu_build(void) {
         lv_obj_center(s_rows[i]);
     }
 
-    s_mascot = ui_pixel_mascot_create(s_menu_scr, 101, 238);
+    s_mascot = ui_pixel_mascot_create(s_menu_scr, 101, 280);
 
     menu_refresh();
     lv_screen_load(s_menu_scr);
@@ -82,16 +82,6 @@ static void enter_menu(void) {
 static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
     (void)user;
     if (!bsp_lvgl_lock(500)) return;
-
-    // AI 页打开时:长按 OK 返回菜单,其余按键忽略
-    if (ai_page_is_open()) {
-        if (btn == BSP_BTN_OK && ev == BSP_BTN_LONG) {
-            ai_page_close();
-            enter_menu();
-        }
-        bsp_lvgl_unlock();
-        return;
-    }
 
     if (s_active >= 0) {
         if (btn == BSP_BTN_OK && ev == BSP_BTN_LONG) {     // 统一返回
@@ -113,11 +103,6 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
         } else if (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN) {
             ui_pixel_mascot_jump(s_mascot);
         }
-    } else if (ev == BSP_BTN_DOUBLE && btn == BSP_BTN_OK) {
-        // 双击 OK:向 AI 发送"你好"并显示回复(仅主菜单状态)
-        bsp_lvgl_unlock();
-        ai_page_open();
-        return;
     }
     bsp_lvgl_unlock();
 }
@@ -177,6 +162,7 @@ void app_main(void) {
     s_ok[2] = (bsp_audio_init() == ESP_OK);
     s_ok[3] = (bsp_battery_init() == ESP_OK);
     s_ok[4] = s_spiffs_ok;
+    s_ok[5] = true;                                   // AI 页自身会提示失败原因
 
     if (bsp_lvgl_lock(1000)) { enter_menu(); bsp_lvgl_unlock(); }
 

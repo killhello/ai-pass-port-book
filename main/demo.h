@@ -26,3 +26,6 @@ void demo_battery_key(bsp_btn_t btn, bsp_btn_ev_t ev);
 
 void demo_ebook_enter(void); void demo_ebook_exit(void);
 void demo_ebook_key(bsp_btn_t btn, bsp_btn_ev_t ev);
+
+void demo_ai_enter(void); void demo_ai_exit(void);
+void demo_ai_key(bsp_btn_t btn, bsp_btn_ev_t ev);
