@@ -14,31 +14,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Pull ESP-IDF image from mirror
+      - name: Pre-pull ESP-IDF image (with retry)
         run: |
-          docker pull dockerpull.org/espressif/idf:v5.5.3
+          for i in 1 2 3 4 5; do
+            echo "尝试拉取 ESP-IDF 镜像 (第 $i 次)..."
+            docker pull espressif/idf:v5.3.1 && break
+            echo "拉取失败,等待 30 秒后重试..."
+            sleep 30
+          done
+          docker images espressif/idf:v5.3.1
 
       - name: Build ESP-IDF firmware
-        run: |
-          docker run --rm \
-            -v $PWD:/workdir \
-            -w /workdir \
-            dockerpull.org/espressif/idf:v5.5.3 \
-            bash -c '
-              set -euo pipefail
-              export IDF_TARGET=esp32c3
-              . $IDF_PATH/export.sh
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.3.1
+          target: esp32c3
+          command: |
+            set -euo pipefail
 
-              idf.py build
+            idf.py build
 
-              test -f build/FoloToy-AI-Passport.bin || { echo "FAIL: firmware not found"; ls -la build/; exit 1; }
-              ls -lh build/FoloToy-AI-Passport.bin
+            test -f build/FoloToy-AI-Passport.bin || { echo "FAIL: firmware not found"; ls -la build/; exit 1; }
+            ls -lh build/FoloToy-AI-Passport.bin
 
-              python $IDF_PATH/components/spiffs/spiffsgen.py 0x4F0000 spiffs_data build/spiffs.bin
+            python $IDF_PATH/components/spiffs/spiffsgen.py 0x4F0000 spiffs_data build/spiffs.bin
 
-              echo "=== Build artifacts ==="
-              find build -name "*.bin" -type f | sort
-            '
+            echo "=== Build artifacts ==="
+            find build -name "*.bin" -type f | sort
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
