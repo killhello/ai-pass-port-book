@@ -80,8 +80,8 @@ esptool.py -p COM3 -b 460800 write_flash 0x8000 build/partition_table/partition-
 # 刷写主固件 (偏移 0x10000)
 esptool.py -p COM3 -b 460800 write_flash 0x10000 build/ai-passport.bin
 
-# 刷写 SPIFFS 数据分区 (偏移 0x110000)
-esptool.py -p COM3 -b 460800 write_flash 0x110000 build/spiffs.bin
+# 刷写 SPIFFS 数据分区 (偏移 0x310000)
+esptool.py -p COM3 -b 460800 write_flash 0x310000 build/spiffs.bin
 ```
 
 > 将 `COM3` 替换为实际的串口号。
@@ -96,7 +96,7 @@ esptool.py -p COM3 -b 460800 write_flash 0x110000 build/spiffs.bin
 # 2. 重新生成 SPIFFS 镜像
 idf.py spiffsgen
 # 3. 只刷写 SPIFFS 分区
-esptool.py -p COM3 write_flash 0x110000 build/spiffs.bin
+esptool.py -p COM3 write_flash 0x310000 build/spiffs.bin
 ```
 
 ## 四、分区表布局
@@ -105,8 +105,8 @@ esptool.py -p COM3 write_flash 0x110000 build/spiffs.bin
 |------|------|----------|------|------|
 | nvs | data | 0x9000 | 24 KB | 配置/阅读进度保存 |
 | phy_init | data | 0xf000 | 4 KB | PHY 初始化数据 |
-| factory | app | 0x10000 | 1024 KB | 主应用固件 |
-| spiffs | data | 0x110000 | ~7104 KB | 电子书存储 |
+| factory | app | 0x10000 | 3072 KB | 主应用固件 |
+| spiffs | data | 0x310000 | ~4980 KB | 电子书存储 |
 
 总 Flash: 8MB (0x800000)
 
@@ -145,7 +145,7 @@ idf.py build
 1. 将 `.txt` 文件（UTF-8 编码）重命名为 `book.txt`
 2. 放入 `spiffs_data/` 目录
 3. 执行 `idf.py spiffsgen` 生成镜像
-4. 执行 `esptool.py write_flash 0x110000 build/spiffs.bin` 刷写
+4. 执行 `esptool.py write_flash 0x310000 build/spiffs.bin` 刷写
 
 ## 七、按键操作
 
