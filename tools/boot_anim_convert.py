@@ -20,7 +20,7 @@ from pathlib import Path
 
 try:
     import numpy as np
-    from PIL import Image
+    from PIL import Image, ImageFilter
 except ImportError:
     print("需要安装: pip install Pillow numpy")
     sys.exit(1)
@@ -31,8 +31,8 @@ FLAG_RAW = 0
 FLAG_RLE = 1
 
 
-def preprocess(img, mode):
-    """返回 240x320 的 RGB 图像"""
+def preprocess(img, mode, blur=0.8, colors=32):
+    """返回 240x320 的 RGB 图像。blur=高斯模糊半径; colors=每通道色阶(量化)"""
     img = img.convert("RGB")
     src_w, src_h = img.size
 
@@ -62,6 +62,12 @@ def preprocess(img, mode):
         left = (new_w - SCREEN_W) // 2
         top = (new_h - SCREEN_H) // 2
         img = img.crop((left, top, left + SCREEN_W, top + SCREEN_H))
+
+    if blur > 0:
+        img = img.filter(ImageFilter.GaussianBlur(blur))
+    if colors < 256:  # 量化色阶 -> 游程更长,RLE 更小
+        q = 256 // colors
+        img = img.point(lambda v: (v // q) * q + q // 2)
     return img
 
 
@@ -109,6 +115,8 @@ def main():
     parser.add_argument("--fps", type=int, default=13, help="目标帧率(默认 13)")
     parser.add_argument("--frames", type=int, default=70, help="最大帧数(默认 70)")
     parser.add_argument("--mode", choices=["rotate", "fit", "fill"], default="rotate")
+    parser.add_argument("--blur", type=float, default=1.0, help="高斯模糊半径(0=不模糊)")
+    parser.add_argument("--colors", type=int, default=32, help="每通道色阶(量化,默认32)")
     args = parser.parse_args()
 
     frames_dir = Path(args.frames_dir)
@@ -143,7 +151,7 @@ def main():
 
     total = 0
     for i, fi in enumerate(idx):
-        img = preprocess(Image.open(files[fi]), args.mode)
+        img = preprocess(Image.open(files[fi]), args.mode, blur=args.blur, colors=args.colors)
         pix = to_rgb565(img)
         flag, payload = rle_encode(pix)
         data = struct.pack("<H", flag) + payload
