@@ -20,32 +20,17 @@ jobs:
           esp_idf_version: v5.5.3
           target: esp32c3
           command: |
-            # 严格错误检查
             set -euo pipefail
 
-            echo "=== 开始构建 ==="
-            idf.py build 2>&1 | tee /tmp/build.log
-            echo "=== 构建完成,检查产物 ==="
+            idf.py build
 
-            # 确认固件 bin 存在
-            if [ ! -f "build/FoloToy-AI-Passport.bin" ]; then
-              echo "错误: 固件文件 build/FoloToy-AI-Passport.bin 不存在!"
-              echo "build 目录内容:"
-              ls -la build/
-              exit 1
-            fi
-            echo "固件大小: $(ls -lh build/FoloToy-AI-Passport.bin | awk '{print $5}')"
+            test -f build/FoloToy-AI-Passport.bin || { echo "FAIL: firmware not found"; ls -la build/; exit 1; }
+            ls -lh build/FoloToy-AI-Passport.bin
 
-            # 生成 SPIFFS 镜像 (约 7MB 分区, 数据目录 spiffs_data)
-            echo "=== 生成 SPIFFS 镜像 ==="
-            python $IDF_PATH/components/spiffs/spiffsgen.py \
-              0x6F0000 spiffs_data build/spiffs.bin
+            python $IDF_PATH/components/spiffs/spiffsgen.py 0x6F0000 spiffs_data build/spiffs.bin
 
-            # 列出所有 build 产物
-            echo "=== build 产物列表 ==="
+            echo "=== Build artifacts ==="
             find build -name "*.bin" -type f | sort
-            echo "=== flasher_args.json ==="
-            cat build/flasher_args.json 2>/dev/null || true
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
