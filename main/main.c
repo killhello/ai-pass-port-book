@@ -109,21 +109,25 @@ void app_main(void) {
     // ---- NVS 初始化(电子书进度保存需要) ----
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        err = nvs_flash_init();
+        ESP_LOGW(TAG, "NVS 需要擦除重建");
+        if (nvs_flash_erase() == ESP_OK) {
+            err = nvs_flash_init();
+        }
     }
-    ESP_ERROR_CHECK(err);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS 初始化失败: %s (不影响启动)", esp_err_to_name(err));
+    }
 
     // ---- SPIFFS 初始化(电子书存储需要) ----
     esp_vfs_spiffs_conf_t spiffs_conf = {
         .base_path = "/spiffs",
         .partition_label = NULL,
         .max_files = 5,
-        .format_if_mount_failed = true,
+        .format_if_mount_failed = false,   // 失败不自动格式化,避免误删数据
     };
     err = esp_vfs_spiffs_register(&spiffs_conf);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "SPIFFS 挂载失败: %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "SPIFFS 挂载失败: %s (跳过电子书和开机动画)", esp_err_to_name(err));
     } else {
         size_t total = 0, used = 0;
         esp_spiffs_info(NULL, &total, &used);
