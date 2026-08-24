@@ -9,38 +9,32 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Pre-pull ESP-IDF image (with retry)
+      - name: Install ESP-IDF (no Docker)
         run: |
-          for i in 1 2 3 4 5; do
-            echo "尝试拉取 ESP-IDF 镜像 (第 $i 次)..."
-            docker pull espressif/idf:v5.3.1 && break
-            echo "拉取失败,等待 30 秒后重试..."
-            sleep 30
-          done
-          docker images espressif/idf:v5.3.1
+          sudo apt-get update
+          sudo apt-get install -y git wget flex bison gperf python3 python3-pip python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
 
-      - name: Build ESP-IDF firmware
-        uses: espressif/esp-idf-ci-action@v1
-        with:
-          esp_idf_version: v5.3.1
-          target: esp32c3
-          command: |
-            set -euo pipefail
+          git clone --depth 1 --branch v5.3.1 --recursive https://github.com/espressif/esp-idf.git $HOME/esp-idf
+          $HOME/esp-idf/install.sh esp32c3
 
-            idf.py build
+      - name: Build firmware
+        run: |
+          . $HOME/esp-idf/export.sh
 
-            test -f build/FoloToy-AI-Passport.bin || { echo "FAIL: firmware not found"; ls -la build/; exit 1; }
-            ls -lh build/FoloToy-AI-Passport.bin
+          idf.py build
 
-            python $IDF_PATH/components/spiffs/spiffsgen.py 0x4F0000 spiffs_data build/spiffs.bin
+          test -f build/FoloToy-AI-Passport.bin || { echo "FAIL: firmware not found"; ls -la build/; exit 1; }
+          ls -lh build/FoloToy-AI-Passport.bin
 
-            echo "=== Build artifacts ==="
-            find build -name "*.bin" -type f | sort
+          python $IDF_PATH/components/spiffs/spiffsgen.py 0x4F0000 spiffs_data build/spiffs.bin
+
+          echo "=== Build artifacts ==="
+          find build -name "*.bin" -type f | sort
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
