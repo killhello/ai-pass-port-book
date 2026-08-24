@@ -5,7 +5,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:   # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,23 +14,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Pull ESP-IDF image from mirror
+        run: |
+          docker pull dockerpull.org/espressif/idf:v5.5.3
+
       - name: Build ESP-IDF firmware
-        uses: espressif/esp-idf-ci-action@v1
-        with:
-          esp_idf_version: v5.5.3
-          target: esp32c3
-          command: |
-            set -euo pipefail
+        run: |
+          docker run --rm \
+            -v $PWD:/workdir \
+            -w /workdir \
+            dockerpull.org/espressif/idf:v5.5.3 \
+            bash -c '
+              set -euo pipefail
+              export IDF_TARGET=esp32c3
+              . $IDF_PATH/export.sh
 
-            idf.py build
+              idf.py build
 
-            test -f build/FoloToy-AI-Passport.bin || { echo "FAIL: firmware not found"; ls -la build/; exit 1; }
-            ls -lh build/FoloToy-AI-Passport.bin
+              test -f build/FoloToy-AI-Passport.bin || { echo "FAIL: firmware not found"; ls -la build/; exit 1; }
+              ls -lh build/FoloToy-AI-Passport.bin
 
-            python $IDF_PATH/components/spiffs/spiffsgen.py 0x4F0000 spiffs_data build/spiffs.bin
+              python $IDF_PATH/components/spiffs/spiffsgen.py 0x4F0000 spiffs_data build/spiffs.bin
 
-            echo "=== Build artifacts ==="
-            find build -name "*.bin" -type f | sort
+              echo "=== Build artifacts ==="
+              find build -name "*.bin" -type f | sort
+            '
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
@@ -47,8 +55,6 @@ jobs:
       - name: Create release zip
         run: |
           set -euo pipefail
-
-          # 先检查所有必需文件
           echo "=== 检查构建产物 ==="
           for f in "build/FoloToy-AI-Passport.bin" \
                    "build/bootloader/bootloader.bin" \
