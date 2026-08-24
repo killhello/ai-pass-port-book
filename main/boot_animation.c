@@ -21,7 +21,7 @@ static const char *TAG = "boot_anim";
 static uint8_t s_buf[CHUNK_SIZE];
 
 static int count_frames(void) {
-    DIR *dir = opendir("/spiffs");
+    DIR *dir = opendir("/spiffs/boot_anim");
     if (!dir) return 0;
     int count = 0;
     struct dirent *ent;
@@ -51,7 +51,7 @@ bool boot_animation_play(void) {
 
     for (int i = 0; i < frame_count; i++) {
         char path[32];
-        snprintf(path, sizeof(path), "/spiffs/boot_%03d.bin", i);
+        snprintf(path, sizeof(path), "/spiffs/boot_anim/boot_%03d.bin", i);
 
         FILE *f = fopen(path, "rb");
         if (!f) {
