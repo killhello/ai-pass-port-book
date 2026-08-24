@@ -19,11 +19,13 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq nodejs npm fonttools
           sudo npm install -g lv_font_conv@^1.5.2
 
-          # 下载思源黑体 (Noto Sans SC) 精简版
-          curl -L -o /tmp/NotoSansSC.ttf \
-            "https://github.com/notofonts/noto-cn/raw/main/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf" || \
-          curl -L -o /tmp/NotoSansSC.ttf \
-            "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf"
+          # 下载思源黑体 TTF 版本 (lv_font_conv 只支持 TTF,不支持 OTF)
+          curl -fL -o /tmp/NotoSansSC.ttf \
+            "https://github.com/googlefonts/noto-cjk/raw/main/Sans/Variable/TTF/Subset/NotoSansSC-VF.ttf" || \
+          curl -fL -o /tmp/NotoSansSC.ttf \
+            "https://github.com/vercel/satori/raw/main/test/assets/fonts/NotoSansSC-Regular.ttf" || \
+          curl -fSL -o /tmp/NotoSansSC.ttf \
+            "https://github.com/adobe-fonts/source-han-sans/raw/release/SubsetOTF/CN/SourceHanSansCN-Regular.otf"
 
           mkdir -p spiffs_data/fonts
 
