@@ -73,42 +73,58 @@ static esp_err_t wifi_init_once(void) {
 int wifi_sta_scan_and_get(wifi_ap_info_t *out, int max_count, int timeout_ms) {
     if (wifi_init_once() != ESP_OK) return 0;
 
-    wifi_scan_config_t scan_cfg = {
-        .show_hidden = false,
-    };
-    // blocking=true: 扫描完成直接返回，内部会等待 SCAN_DONE 事件
-    esp_err_t err = esp_wifi_scan_start(&scan_cfg, true);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "扫描启动失败: %s", esp_err_to_name(err));
-        return 0;
+    // 等待 WiFi 完全就绪
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    // 最多尝试 3 次扫描
+    for (int attempt = 1; attempt <= 3; attempt++) {
+        ESP_LOGI(TAG, "开始第 %d 次扫描...", attempt);
+
+        wifi_scan_config_t scan_cfg = {
+            .show_hidden = false,
+            .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+            .scan_time.active.min = 120,
+            .scan_time.active.max = 180,
+        };
+        esp_err_t err = esp_wifi_scan_start(&scan_cfg, true);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "第 %d 次扫描启动失败: %s", attempt, esp_err_to_name(err));
+            vTaskDelay(pdMS_TO_TICKS(300));
+            continue;
+        }
+
+        uint16_t ap_count = 0;
+        esp_wifi_scan_get_ap_num(&ap_count);
+        ESP_LOGI(TAG, "第 %d 次扫描发现 %d 个 AP", attempt, ap_count);
+        
+        if (ap_count > 0) {
+            uint16_t fetch = ap_count < WIFI_SCAN_MAX ? ap_count : WIFI_SCAN_MAX;
+            wifi_ap_record_t *records = calloc(fetch, sizeof(wifi_ap_record_t));
+            if (!records) return 0;
+
+            esp_wifi_scan_get_ap_records(&fetch, records);
+
+            int count = 0;
+            for (int i = 0; i < fetch && count < max_count; i++) {
+                strlcpy(out[count].ssid, (const char *)records[i].ssid, sizeof(out[count].ssid));
+                out[count].rssi = records[i].rssi;
+                out[count].authmode = records[i].authmode;
+                count++;
+            }
+
+            free(records);
+            s_scan_count = count;
+            memcpy(s_scan_results, out, count * sizeof(wifi_ap_info_t));
+            ESP_LOGI(TAG, "扫描成功: %d 个网络", count);
+            return count;
+        }
+
+        ESP_LOGW(TAG, "第 %d 次扫描无结果，重试...", attempt);
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 
-    uint16_t ap_count = 0;
-    esp_wifi_scan_get_ap_num(&ap_count);
-    if (ap_count == 0) {
-        ESP_LOGI(TAG, "未发现 WiFi 网络");
-        return 0;
-    }
-
-    uint16_t fetch = ap_count < WIFI_SCAN_MAX ? ap_count : WIFI_SCAN_MAX;
-    wifi_ap_record_t *records = calloc(fetch, sizeof(wifi_ap_record_t));
-    if (!records) return 0;
-
-    esp_wifi_scan_get_ap_records(&fetch, records);
-
-    int count = 0;
-    for (int i = 0; i < fetch && count < max_count; i++) {
-        strlcpy(out[count].ssid, (const char *)records[i].ssid, sizeof(out[count].ssid));
-        out[count].rssi = records[i].rssi;
-        out[count].authmode = records[i].authmode;
-        count++;
-    }
-
-    free(records);
-    s_scan_count = count;
-    memcpy(s_scan_results, out, count * sizeof(wifi_ap_info_t));
-    ESP_LOGI(TAG, "扫描完成: %d 个网络", count);
-    return count;
+    ESP_LOGE(TAG, "3 次扫描均无结果");
+    return 0;
 }
 
 // 兼容旧 API:异步启动扫描(内部改为同步)
