@@ -99,7 +99,7 @@ jobs:
             echo "  0x0 bootloader.bin \\"
             echo "  0x8000 partition-table.bin \\"
             echo "  0x10000 firmware.bin \\"
-            echo "  0x1D0000 spiffs.bin"
+            echo "  0x290000 spiffs.bin"
             echo ""
             echo "注意:"
             echo "- 把 COM3 换成实际串口(Linux 为 /dev/ttyACM0 或 /dev/ttyUSB0)"
