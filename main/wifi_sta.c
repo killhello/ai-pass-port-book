@@ -5,11 +5,13 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
+#include "esp_smartconfig.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "freertos/event_groups.h"
 #include <string.h>
 
 // strlcpy 兼容层（ESP-IDF 无 strlcpy）
@@ -35,8 +37,79 @@ static char s_cur_ssid[33] = {0};
 static wifi_sta_cb_t s_user_cb = NULL;
 static void *s_user_data = NULL;
 
+// SmartConfig 状态
+static EventGroupHandle_t s_sc_event_group;
+static smartconfig_cb_t s_sc_cb = NULL;
+static void *s_sc_user_data = NULL;
+static volatile bool s_sc_running = false;
+static int s_sc_timeout_ms = 60000;
+
 static void fire_evt(wifi_sta_evt_t evt, void *data) {
     if (s_user_cb) s_user_cb(evt, data, s_user_data);
+}
+
+static void sc_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data) {
+    if (base == SC_EVENT) {
+        switch (id) {
+            case SC_EVENT_SCAN_DONE:
+                ESP_LOGI(TAG, "SmartConfig: 扫描完成");
+                if (s_sc_cb) s_sc_cb(SC_STATUS_FIND_CHANNEL, s_sc_user_data);
+                break;
+            case SC_EVENT_FOUND_CHANNEL:
+                ESP_LOGI(TAG, "SmartConfig: 找到信道");
+                if (s_sc_cb) s_sc_cb(SC_STATUS_GETTING_SSID_PSWD, s_sc_user_data);
+                break;
+            case SC_EVENT_GOT_SSID_PSWD: {
+                ESP_LOGI(TAG, "SmartConfig: 获取到 SSID/Password");
+                smartconfig_event_got_ssid_pswd_t *evt = (smartconfig_event_got_ssid_pswd_t *)data;
+                wifi_config_t wifi_config = {0};
+                memcpy(wifi_config.sta.ssid, evt->ssid, sizeof(wifi_config.sta.ssid));
+                memcpy(wifi_config.sta.password, evt->password, sizeof(wifi_config.sta.password));
+                wifi_config.sta.bssid_set = evt->bssid_set;
+                if (wifi_config.sta.bssid_set) {
+                    memcpy(wifi_config.sta.bssid, evt->bssid, sizeof(wifi_config.sta.bssid));
+                }
+                ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+                ESP_LOGI(TAG, "SmartConfig: SSID=%s, Password=%s", evt->ssid, evt->password);
+                if (s_sc_cb) s_sc_cb(SC_STATUS_LINK, s_sc_user_data);
+                esp_wifi_connect();
+                break;
+            }
+            case SC_EVENT_SEND_ACK_DONE:
+                ESP_LOGI(TAG, "SmartConfig: ACK 发送完成");
+                if (s_sc_cb) s_sc_cb(SC_STATUS_LINK_OVER, s_sc_user_data);
+                xEventGroupSetBits(s_sc_event_group, BIT1);
+                break;
+            default:
+                break;
+        }
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
+        ESP_LOGI(TAG, "SmartConfig: WiFi 已连接");
+    } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+        ESP_LOGI(TAG, "SmartConfig: 获取到 IP");
+        xEventGroupSetBits(s_sc_event_group, BIT0);
+    }
+}
+
+static void smartconfig_task(void *param) {
+    (void)param;
+    EventBits_t bits = xEventGroupWaitBits(s_sc_event_group, BIT0 | BIT1, pdTRUE, pdFALSE, pdMS_TO_TICKS(s_sc_timeout_ms));
+    esp_smartconfig_stop();
+    s_sc_running = false;
+    vEventGroupDelete(s_sc_event_group);
+    s_sc_event_group = NULL;
+    
+    if (bits & BIT0) {
+        ESP_LOGI(TAG, "SmartConfig 成功，已获取 IP");
+        if (s_sc_cb) s_sc_cb(SC_STATUS_LINK_OVER, s_sc_user_data);
+    } else if (bits & BIT1) {
+        ESP_LOGI(TAG, "SmartConfig: ACK 完成但未获取 IP");
+        if (s_sc_cb) s_sc_cb(SC_STATUS_LINK_OVER, s_sc_user_data);
+    } else {
+        ESP_LOGE(TAG, "SmartConfig 超时或失败");
+        if (s_sc_cb) s_sc_cb(SC_STATUS_FAIL, s_sc_user_data);
+    }
+    vTaskDelete(NULL);
 }
 
 static esp_err_t nvs_lock(TickType_t wait) {
@@ -260,6 +333,95 @@ esp_err_t wifi_sta_start_ap_fallback(const char *ap_ssid, const char *ap_pass) {
     if (ap_pass && ap_pass[0]) strlcpy((char *)ap_cfg.ap.password, ap_pass, sizeof(ap_cfg.ap.password));
 
     return esp_wifi_set_config(WIFI_IF_AP, &ap_cfg);
+}
+
+// 兼容旧 API：使用 NVS 保存的凭证自动连接
+esp_err_t wifi_sta_connect_default(void) {
+    return wifi_sta_autoconnect();
+}
+
+// ===== SmartConfig 实现 =====
+esp_err_t wifi_sta_smartconfig_start(smartconfig_cb_t cb, void *user, int timeout_ms) {
+    if (s_sc_running) return ESP_ERR_INVALID_STATE;
+    if (wifi_sta_init() != ESP_OK) return ESP_ERR_NO_MEM;
+
+    s_sc_cb = cb;
+    s_sc_user_data = user;
+    s_sc_timeout_ms = timeout_ms > 0 ? timeout_ms : 60000;
+
+    // 断开现有连接
+    if (s_connected) {
+        esp_wifi_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+
+    s_sc_event_group = xEventGroupCreate();
+    if (!s_sc_event_group) return ESP_ERR_NO_MEM;
+
+    esp_err_t err = esp_event_handler_register(SC_EVENT, ESP_EVENT_ANY_ID, sc_event_handler, NULL);
+    if (err != ESP_OK) {
+        vEventGroupDelete(s_sc_event_group);
+        return err;
+    }
+    err = esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, sc_event_handler, NULL);
+    if (err != ESP_OK) {
+        esp_event_handler_unregister(SC_EVENT, ESP_EVENT_ANY_ID, sc_event_handler);
+        vEventGroupDelete(s_sc_event_group);
+        return err;
+    }
+    err = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, sc_event_handler, NULL);
+    if (err != ESP_OK) {
+        esp_event_handler_unregister(SC_EVENT, ESP_EVENT_ANY_ID, sc_event_handler);
+        esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, sc_event_handler);
+        vEventGroupDelete(s_sc_event_group);
+        return err;
+    }
+
+    smartconfig_start_config_t sc_cfg = SMARTCONFIG_START_CONFIG_DEFAULT();
+    sc_cfg.enable_log = true;
+    err = esp_smartconfig_set_type(SC_TYPE_ESPTOUCH);
+    if (err != ESP_OK) {
+        esp_event_handler_unregister(SC_EVENT, ESP_EVENT_ANY_ID, sc_event_handler);
+        esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, sc_event_handler);
+        esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, sc_event_handler);
+        vEventGroupDelete(s_sc_event_group);
+        return err;
+    }
+
+    err = esp_smartconfig_start(&sc_cfg);
+    if (err != ESP_OK) {
+        esp_event_handler_unregister(SC_EVENT, ESP_EVENT_ANY_ID, sc_event_handler);
+        esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, sc_event_handler);
+        esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, sc_event_handler);
+        vEventGroupDelete(s_sc_event_group);
+        return err;
+    }
+
+    s_sc_running = true;
+    BaseType_t ret = xTaskCreate(smartconfig_task, "sc_task", 4096, NULL, 5, NULL);
+    if (ret != pdPASS) {
+        esp_smartconfig_stop();
+        esp_event_handler_unregister(SC_EVENT, ESP_EVENT_ANY_ID, sc_event_handler);
+        esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, sc_event_handler);
+        esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, sc_event_handler);
+        vEventGroupDelete(s_sc_event_group);
+        s_sc_running = false;
+        return ESP_ERR_NO_MEM;
+    }
+
+    ESP_LOGI(TAG, "SmartConfig 启动，等待手机配网...");
+    return ESP_OK;
+}
+
+void wifi_sta_smartconfig_stop(void) {
+    if (!s_sc_running) return;
+    esp_smartconfig_stop();
+    s_sc_running = false;
+    // 事件清理在 smartconfig_task 中完成
+}
+
+bool wifi_sta_smartconfig_is_running(void) {
+    return s_sc_running;
 }
 
 // 兼容旧 API：使用 NVS 保存的凭证自动连接
