@@ -36,7 +36,7 @@ int wifi_sta_scan(wifi_ap_info_t *out, int max_count);
 esp_err_t wifi_sta_connect(const char *ssid, const char *password);
 
 // 断开当前连接
-esp_err_t wifi_sta_disconnect(void);
+esp_err_t wifi_sta_do_disconnect(void);
 
 // 是否已连接并有 IP
 bool wifi_sta_is_connected(void);

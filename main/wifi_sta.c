@@ -222,7 +222,8 @@ esp_err_t wifi_sta_autoconnect(void) {
     return ESP_ERR_NOT_FOUND;
 }
 
-esp_err_t wifi_sta_disconnect(void) {
+// 断开当前连接
+esp_err_t wifi_sta_do_disconnect(void) {
     if (s_connected) {
         s_connected = false;
         return esp_wifi_disconnect();
