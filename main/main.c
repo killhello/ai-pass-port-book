@@ -58,11 +58,20 @@ static void menu_refresh(void) {
 static void menu_build(void) {
     s_menu_scr = ui_pixel_screen_create("FoloToy");
 
-    // 单列垂直列表:7 个卡片,上下键循环选择
+    // 还原原版 2×3 网格(前 6 项),第 7 项(WiFi)单独居中放第 4 行
     for (size_t i = 0; i < DEMO_COUNT; i++) {
-        int x = 16;
-        int y = 32 + (int)i * 42;
-        s_cards[i] = ui_pixel_panel_create(s_menu_scr, x, y, 208, 38, UI_PAPER);
+        int x, y, w = 102, h = 72;
+        if (i < 6) {
+            // 原版 2 列 × 3 行
+            x = 11 + (int)(i % 2) * 112;
+            y = 46 + (int)(i / 2) * 78;
+        } else {
+            // 第 7 项:居中单独一行
+            x = 11;
+            y = 46 + 3 * 78;
+            w = 224;
+        }
+        s_cards[i] = ui_pixel_panel_create(s_menu_scr, x, y, w, h, UI_PAPER);
         s_rows[i] = lv_label_create(s_cards[i]);
         lv_obj_set_style_text_font(s_rows[i], &notosanssc_16, 0);
         lv_obj_set_style_text_align(s_rows[i], LV_TEXT_ALIGN_CENTER, 0);
