@@ -9,6 +9,7 @@
 #include "esp_http_server.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "esp_task_wdt.h"
 #include <string.h>
 #include "esp_heap_caps.h"
 
@@ -189,6 +190,9 @@ static int handle_captive(httpd_req_t *req) {
 static void portal_task(void *param) {
     (void)param;
 
+    // 从看门狗中移除，避免初始化期间被杀
+    esp_task_wdt_delete(NULL);
+
     // 完全释放 WiFi 驱动内存
     esp_wifi_stop();
     esp_wifi_deinit();
@@ -283,7 +287,9 @@ esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
     s_user_cb = cb;
     s_user_data = user;
 
-    BaseType_t ret = xTaskCreate(portal_task, "portal", 8192, NULL, 5, NULL);
+    ESP_LOGI(TAG, "创建 portal task...");
+
+    BaseType_t ret = xTaskCreate(portal_task, "portal", 8192, NULL, 3, NULL);
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "portal task 创建失败");
         return ESP_ERR_NO_MEM;
