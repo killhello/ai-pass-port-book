@@ -184,8 +184,10 @@ static int handle_captive(httpd_req_t *req) {
     return httpd_resp_send(req, NULL, 0);
 }
 
-static void portal_task(void *param) {
-    (void)param;
+esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
+    if (s_running) return ESP_ERR_INVALID_STATE;
+    s_user_cb = cb;
+    s_user_data = user;
 
     // 设置 AP+STA 模式
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
@@ -203,8 +205,7 @@ static void portal_task(void *param) {
     esp_err_t err = esp_wifi_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "WiFi start 失败: %s", esp_err_to_name(err));
-        vTaskDelete(NULL);
-        return;
+        return err;
     }
 
     vTaskDelay(pdMS_TO_TICKS(500));
@@ -212,12 +213,11 @@ static void portal_task(void *param) {
     // HTTP 服务器
     httpd_config_t http_cfg = HTTPD_DEFAULT_CONFIG();
     http_cfg.max_uri_handlers = 6;
-    http_cfg.stack_size = 4096;
+    http_cfg.stack_size = 8192;
     err = httpd_start(&s_httpd, &http_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "HTTP 启动失败: %s", esp_err_to_name(err));
-        vTaskDelete(NULL);
-        return;
+        return err;
     }
 
     // 注册路由
@@ -248,21 +248,6 @@ static void portal_task(void *param) {
 
     s_running = true;
     ESP_LOGI(TAG, "热点配网启动: SSID=%s", AP_SSID);
-
-    // 任务完成，自行删除
-    vTaskDelete(NULL);
-}
-
-esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
-    if (s_running) return ESP_ERR_INVALID_STATE;
-    s_user_cb = cb;
-    s_user_data = user;
-
-    BaseType_t ret = xTaskCreate(portal_task, "portal", 6144, NULL, 5, NULL);
-    if (ret != pdPASS) {
-        ESP_LOGE(TAG, "portal task 创建失败");
-        return ESP_ERR_NO_MEM;
-    }
     return ESP_OK;
 }
 
