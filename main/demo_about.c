@@ -28,8 +28,8 @@ void demo_about_enter(void) {
     lv_obj_set_style_bg_opa(scroll, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(scroll, 0, 0);
     lv_obj_set_style_pad_all(scroll, 0, 0);
-    lv_obj_set_scrollbar_width(scroll, 3);
-    lv_obj_set_scrollbar_color(scroll, lv_color_hex(0x555555), 0);
+    lv_obj_set_scroll_dir(scroll, LV_DIR_VER);
+    lv_obj_set_scroll_snap_y(scroll, LV_SCROLL_SNAP_START);
 
     lv_obj_t *txt = lv_label_create(scroll);
     lv_obj_set_style_text_font(txt, &notosanssc_16, 0);
