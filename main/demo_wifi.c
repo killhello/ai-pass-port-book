@@ -22,8 +22,7 @@ static inline size_t strlcpy_local(char *dst, const char *src, size_t dstsize) {
 
 #define strlcpy(dst, src, dstsize) strlcpy_local(dst, src, dstsize)
 
-static const char *TAG = "demo_wifi";
-(void)TAG;  // 仅为消除 unused 变量警告
+static const char *TAG __attribute__((unused)) = "demo_wifi";
 
 #define MAX_AP  12
 
