@@ -91,7 +91,7 @@ static void ai_worker(void *arg) {
     ai_req_t *r = (ai_req_t *)arg;
 
     // 1. WiFi
-    if (wifi_sta_connect() != ESP_OK) {
+    if (wifi_sta_connect_default() != ESP_OK) {
         r->cb(AI_STATE_FAIL, "WiFi 连接失败");
         goto done;
     }
