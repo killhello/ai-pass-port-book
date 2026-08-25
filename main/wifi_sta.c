@@ -206,7 +206,8 @@ esp_err_t wifi_sta_init(void) {
     ESP_ERROR_CHECK(esp_wifi_set_country(&country));
 
     ESP_ERROR_CHECK(esp_wifi_start());
-    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_wifi_set_ps(WIFI_PS_NONE);  // 禁用省电，确保扫描稳定
+    vTaskDelay(pdMS_TO_TICKS(2000));  // 等待射频稳定
 
     s_inited = true;
     ESP_LOGI(TAG, "WiFi STA 初始化完成");
@@ -217,14 +218,11 @@ esp_err_t wifi_sta_init(void) {
 int wifi_sta_scan(wifi_ap_info_t *out, int max_count) {
     if (wifi_sta_init() != ESP_OK) return 0;
 
-    // 使用主动扫描，设置合理的信道停留时间
+    // 被动扫描（与测试任务一致，已验证可扫到 11 AP）
     wifi_scan_config_t cfg = { 0 };
     cfg.show_hidden = false;
-    cfg.scan_type = WIFI_SCAN_TYPE_ACTIVE;
-    cfg.scan_time.active.min = 120;  // 每信道最短 120ms
-    cfg.scan_time.active.max = 180;  // 每信道最长 180ms
 
-    ESP_LOGI(TAG, "开始主动扫描...");
+    ESP_LOGI(TAG, "开始扫描...");
     esp_err_t err = esp_wifi_scan_start(&cfg, true);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "扫描启动失败: %s", esp_err_to_name(err));
