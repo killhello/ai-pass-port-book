@@ -423,8 +423,3 @@ void wifi_sta_smartconfig_stop(void) {
 bool wifi_sta_smartconfig_is_running(void) {
     return s_sc_running;
 }
-
-// 兼容旧 API：使用 NVS 保存的凭证自动连接
-esp_err_t wifi_sta_connect_default(void) {
-    return wifi_sta_autoconnect();
-}
