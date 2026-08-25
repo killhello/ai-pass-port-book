@@ -1,5 +1,5 @@
-// main/wifi_sta.c —— WiFi STA 模块:扫描 + 动态连接(仅开放网络)。
-// NVS 保存上次连接的 SSID,启动时自动重连。
+// main/wifi_sta.c —— WiFi STA 模块:扫描(所有网络) + 动态连接(支持密码)。
+// NVS 保存上次连接的 SSID+密码,启动时自动重连。
 #include "wifi_sta.h"
 #include "ai_config.h"
 #include "esp_log.h"
@@ -12,18 +12,6 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include <string.h>
-
-// strlcpy 兼容层(ESP-IDF 无 strlcpy)
-static inline size_t strlcpy_local(char *dst, const char *src, size_t dstsize) {
-    if (dstsize == 0) return strlen(src);
-    size_t n = strlen(src);
-    if (n >= dstsize) n = dstsize - 1;
-    memcpy(dst, src, n);
-    dst[n] = '\0';
-    return strlen(src);
-}
-
-#define strlcpy(dst, src, dstsize) strlcpy_local(dst, src, dstsize)
 
 static const char *TAG = "wifi_sta";
 static const char *NVS_NAMESPACE = "wifi";
@@ -42,7 +30,6 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data) {
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         s_connected = false;
         ESP_LOGW(TAG, "WiFi 断开");
-        // 不自动重连——由用户决定
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_SCAN_DONE) {
         xSemaphoreGive(s_scan_done);
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
@@ -117,23 +104,20 @@ int wifi_sta_get_scan_results(wifi_ap_info_t *out, int max_count, int timeout_ms
 
     int count = 0;
     for (int i = 0; i < fetch && count < max_count; i++) {
-        // 只保留开放网络(无密码)
-        if (records[i].authmode == WIFI_AUTH_OPEN) {
-            strlcpy(out[count].ssid, (const char *)records[i].ssid, sizeof(out[count].ssid));
-            out[count].rssi = records[i].rssi;
-            out[count].authmode = records[i].authmode;
-            count++;
-        }
+        strlcpy(out[count].ssid, (const char *)records[i].ssid, sizeof(out[count].ssid));
+        out[count].rssi = records[i].rssi;
+        out[count].authmode = records[i].authmode;
+        count++;
     }
 
     free(records);
     s_scan_count = count;
     memcpy(s_scan_results, out, count * sizeof(wifi_ap_info_t));
-    ESP_LOGI(TAG, "扫描完成: %d 个开放网络(共 %d 个 AP)", count, ap_count);
+    ESP_LOGI(TAG, "扫描完成: %d 个网络", count);
     return count;
 }
 
-esp_err_t wifi_sta_connect_to(const char *ssid) {
+esp_err_t wifi_sta_connect_to(const char *ssid, const char *password) {
     if (wifi_init_once() != ESP_OK) return ESP_ERR_NO_MEM;
 
     // 已连接同一 SSID
@@ -147,12 +131,16 @@ esp_err_t wifi_sta_connect_to(const char *ssid) {
 
     wifi_config_t wc = { 0 };
     strlcpy((char *)wc.sta.ssid, ssid, sizeof(wc.sta.ssid));
-    wc.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    if (password && password[0]) {
+        strlcpy((char *)wc.sta.password, password, sizeof(wc.sta.password));
+        wc.sta.threshold.authmode = WIFI_AUTH_WPA_PSK;
+    } else {
+        wc.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    }
 
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
     ESP_LOGI(TAG, "正在连接 %s ...", ssid);
 
-    // 重置信号量
     xSemaphoreTake(s_got_ip, 0);
     esp_err_t err = esp_wifi_connect();
     if (err != ESP_OK) {
@@ -160,13 +148,16 @@ esp_err_t wifi_sta_connect_to(const char *ssid) {
         return err;
     }
 
-    // 等待 IP
     if (xSemaphoreTake(s_got_ip, pdMS_TO_TICKS(WIFI_CONNECT_TIMEOUT_MS)) == pdTRUE) {
         strlcpy(s_current_ssid, ssid, sizeof(s_current_ssid));
-        // 保存到 NVS
         nvs_handle_t h;
         if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
             nvs_set_str(h, "ssid", ssid);
+            if (password && password[0]) {
+                nvs_set_str(h, "pass", password);
+            } else {
+                nvs_erase_key(h, "pass");
+            }
             nvs_commit(h);
             nvs_close(h);
         }
@@ -178,22 +169,23 @@ esp_err_t wifi_sta_connect_to(const char *ssid) {
     return ESP_ERR_TIMEOUT;
 }
 
-// 从 NVS 读取保存的 SSID 并连接(兼容旧逻辑)
 esp_err_t wifi_sta_connect(void) {
     char saved_ssid[33] = { 0 };
+    char saved_pass[65] = { 0 };
     nvs_handle_t h;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK) {
         size_t len = sizeof(saved_ssid);
         nvs_get_str(h, "ssid", saved_ssid, &len);
+        len = sizeof(saved_pass);
+        nvs_get_str(h, "pass", saved_pass, &len);
         nvs_close(h);
     }
 
     if (saved_ssid[0] != '\0') {
-        return wifi_sta_connect_to(saved_ssid);
+        return wifi_sta_connect_to(saved_ssid, saved_pass[0] ? saved_pass : NULL);
     }
 
-    // 无保存的 SSID,尝试默认
-    return wifi_sta_connect_to(WIFI_SSID);
+    return wifi_sta_connect_to(WIFI_SSID, WIFI_PASS);
 }
 
 bool wifi_sta_is_connected(void) {

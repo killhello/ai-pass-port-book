@@ -9,7 +9,7 @@
 // --- AI 接口(OpenAI 兼容 /chat/completions) ---
 #define AI_API_URL    "https://uuapi.io/v1/chat/completions"
 #define AI_API_KEY    "sk-d5f7913ccde1434a681f08cf295b3465199841eb661158afd077c6f27bf6ba40"
-#define AI_MODEL      "gpt-6"
+#define AI_MODEL      "gpt-5.6"
 
 #define AI_HTTP_TIMEOUT_MS       30000  // 请求超时
 #define AI_RESP_MAX_BYTES        65536  // 响应体累积上限
