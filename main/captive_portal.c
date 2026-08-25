@@ -186,25 +186,24 @@ static int handle_captive(httpd_req_t *req) {
     return httpd_resp_send(req, NULL, 0);
 }
 
-esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
-    if (s_running) return ESP_ERR_INVALID_STATE;
-    s_user_cb = cb;
-    s_user_data = user;
+static void portal_task(void *param) {
+    (void)param;
 
     // 完全释放 WiFi 驱动内存
     esp_wifi_stop();
     esp_wifi_deinit();
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(200));
 
     size_t free1 = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-    ESP_LOGI(TAG, "WiFi 彻底释放后堆: %lu KB", (unsigned long)free1 / 1024);
+    ESP_LOGI(TAG, "WiFi 释放后堆: %lu KB", (unsigned long)free1 / 1024);
 
     // 重新初始化 WiFi 驱动（AP+STA 模式）
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_err_t err = esp_wifi_init(&cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "WiFi reinit 失败: %s", esp_err_to_name(err));
-        return err;
+        vTaskDelete(NULL);
+        return;
     }
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
@@ -222,7 +221,8 @@ esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
     err = esp_wifi_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "WiFi start 失败: %s", esp_err_to_name(err));
-        return err;
+        vTaskDelete(NULL);
+        return;
     }
 
     vTaskDelay(pdMS_TO_TICKS(500));
@@ -234,7 +234,8 @@ esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
     err = httpd_start(&s_httpd, &http_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "HTTP 启动失败: %s", esp_err_to_name(err));
-        return err;
+        vTaskDelete(NULL);
+        return;
     }
 
     // 注册路由
@@ -265,6 +266,20 @@ esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
 
     s_running = true;
     ESP_LOGI(TAG, "热点配网启动: SSID=%s", AP_SSID);
+
+    vTaskDelete(NULL);
+}
+
+esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
+    if (s_running) return ESP_ERR_INVALID_STATE;
+    s_user_cb = cb;
+    s_user_data = user;
+
+    BaseType_t ret = xTaskCreate(portal_task, "portal", 8192, NULL, 5, NULL);
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "portal task 创建失败");
+        return ESP_ERR_NO_MEM;
+    }
     return ESP_OK;
 }
 

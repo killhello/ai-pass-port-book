@@ -26,7 +26,6 @@ static lv_obj_t *s_prov_status;
 static lv_obj_t *s_prov_hint;
 
 static wifi_state_t s_state;
-static bool s_start_pending = false;
 
 static void prov_cb(bool success, void *user) {
     ESP_LOGI(TAG, "配网完成: %s", success ? "成功" : "失败");
@@ -110,20 +109,6 @@ static void destroy_prov(void) {
     }
 }
 
-static void deferred_start(lv_timer_t *timer) {
-    if (!s_start_pending) { lv_timer_delete(timer); return; }
-    s_start_pending = false;
-    lv_timer_delete(timer);
-
-    if (s_prov_status) lv_label_set_text(s_prov_status, "正在释放内存并启动热点...");
-
-    esp_err_t err = captive_portal_start(prov_cb, NULL);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "配网启动失败: %s", esp_err_to_name(err));
-        if (s_prov_status) lv_label_set_text(s_prov_status, "启动失败\n长按 OK 返回");
-    }
-}
-
 void demo_wifi_enter(void) {
     s_state = STATE_INFO;
     show_info_page();
@@ -146,7 +131,11 @@ void demo_wifi_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
     }
     if (ev == BSP_BTN_CLICK && btn == BSP_BTN_OK) {
         show_prov_page();
-        s_start_pending = true;
-        lv_timer_create(deferred_start, 200, NULL);
+        if (s_prov_status) lv_label_set_text(s_prov_status, "正在启动热点...");
+        esp_err_t err = captive_portal_start(prov_cb, NULL);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "配网启动失败: %s", esp_err_to_name(err));
+            if (s_prov_status) lv_label_set_text(s_prov_status, "启动失败\n长按 OK 返回");
+        }
     }
 }
