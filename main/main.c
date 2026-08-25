@@ -28,9 +28,9 @@ static const demo_entry_t DEMOS[] = {
     { "按键", demo_button_enter,  demo_button_exit,  demo_button_key  },
     { "音频", demo_audio_enter,   demo_audio_exit,   demo_audio_key   },
     { "电池", demo_battery_enter, demo_battery_exit, demo_battery_key },
-    { "WiFi", demo_wifi_enter,    demo_wifi_exit,    demo_wifi_key    },
+    { "无线", demo_wifi_enter,    demo_wifi_exit,    demo_wifi_key    },
     { "电子书", demo_ebook_enter, demo_ebook_exit,   demo_ebook_key   },
-    { "AI",     demo_ai_enter,    demo_ai_exit,      demo_ai_key      },
+    { "智能",   demo_ai_enter,    demo_ai_exit,      demo_ai_key      },
     { "关于",   demo_about_enter, demo_about_exit,   demo_about_key   },
 };
 #define DEMO_COUNT (sizeof(DEMOS) / sizeof(DEMOS[0]))

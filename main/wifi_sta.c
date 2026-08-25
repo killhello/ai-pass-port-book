@@ -29,6 +29,7 @@ static SemaphoreHandle_t s_nvs_mutex;
 static SemaphoreHandle_t s_got_ip;
 static volatile bool s_connected = false;
 static bool s_inited = false;
+static bool s_once = false;   // netif/事件处理器只需创建一次, 反复 init/deinit 会泄漏
 static char s_cur_ssid[33] = {0};
 
 static wifi_sta_cb_t s_user_cb = NULL;
@@ -96,18 +97,20 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
 esp_err_t wifi_sta_init(void) {
     if (s_inited) return ESP_OK;
 
-    s_got_ip = xSemaphoreCreateBinary();
-    if (!s_got_ip) return ESP_ERR_NO_MEM;
-
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_sta();
+
+    if (!s_once) {
+        esp_netif_create_default_wifi_sta();
+        s_got_ip = xSemaphoreCreateBinary();
+        if (!s_got_ip) return ESP_ERR_NO_MEM;
+        ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_wifi_event, NULL));
+        ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_wifi_event, NULL));
+        s_once = true;
+    }
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_wifi_event, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_wifi_event, NULL));
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 
