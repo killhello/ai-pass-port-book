@@ -76,20 +76,20 @@ int wifi_sta_scan_and_get(wifi_ap_info_t *out, int max_count, int timeout_ms) {
     // 等待 WiFi 完全就绪
     vTaskDelay(pdMS_TO_TICKS(500));
 
-    // 最多尝试 3 次扫描
-    for (int attempt = 1; attempt <= 3; attempt++) {
+    // 最多尝试 2 次扫描，使用最简单的配置
+    for (int attempt = 1; attempt <= 2; attempt++) {
         ESP_LOGI(TAG, "开始第 %d 次扫描...", attempt);
 
+        // 使用最简单的配置：默认参数，被动扫描更稳
         wifi_scan_config_t scan_cfg = {
             .show_hidden = false,
-            .scan_type = WIFI_SCAN_TYPE_ACTIVE,
-            .scan_time.active.min = 120,
-            .scan_time.active.max = 180,
+            .scan_type = WIFI_SCAN_TYPE_PASSIVE,
+            .scan_time.passive = 200,  // 每信道 200ms
         };
         esp_err_t err = esp_wifi_scan_start(&scan_cfg, true);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "第 %d 次扫描启动失败: %s", attempt, esp_err_to_name(err));
-            vTaskDelay(pdMS_TO_TICKS(300));
+            vTaskDelay(pdMS_TO_TICKS(500));
             continue;
         }
 
@@ -120,10 +120,10 @@ int wifi_sta_scan_and_get(wifi_ap_info_t *out, int max_count, int timeout_ms) {
         }
 
         ESP_LOGW(TAG, "第 %d 次扫描无结果，重试...", attempt);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    ESP_LOGE(TAG, "3 次扫描均无结果");
+    ESP_LOGE(TAG, "扫描均无结果");
     return 0;
 }
 
