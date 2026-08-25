@@ -68,24 +68,18 @@ static esp_err_t wifi_init_once(void) {
     return ESP_OK;
 }
 
-bool wifi_sta_start_scan(void) {
-    if (wifi_init_once() != ESP_OK) return false;
+// 同步扫描并返回结果。阻塞直到扫描完成或超时。
+// 返回实际找到的网络数(0=失败/无网络)
+int wifi_sta_scan_and_get(wifi_ap_info_t *out, int max_count, int timeout_ms) {
+    if (wifi_init_once() != ESP_OK) return 0;
 
     wifi_scan_config_t scan_cfg = {
         .show_hidden = false,
     };
-    esp_err_t err = esp_wifi_scan_start(&scan_cfg, false);
+    // blocking=true: 扫描完成直接返回，内部会等待 SCAN_DONE 事件
+    esp_err_t err = esp_wifi_scan_start(&scan_cfg, true);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "扫描启动失败: %s", esp_err_to_name(err));
-        return false;
-    }
-    ESP_LOGI(TAG, "WiFi 扫描已启动");
-    return true;
-}
-
-int wifi_sta_get_scan_results(wifi_ap_info_t *out, int max_count, int timeout_ms) {
-    if (xSemaphoreTake(s_scan_done, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
-        ESP_LOGW(TAG, "扫描超时");
         return 0;
     }
 
@@ -115,6 +109,21 @@ int wifi_sta_get_scan_results(wifi_ap_info_t *out, int max_count, int timeout_ms
     memcpy(s_scan_results, out, count * sizeof(wifi_ap_info_t));
     ESP_LOGI(TAG, "扫描完成: %d 个网络", count);
     return count;
+}
+
+// 兼容旧 API:异步启动扫描(内部改为同步)
+bool wifi_sta_start_scan(void) {
+    // 这里不再真正启动异步扫描，保留接口兼容
+    // 实际扫描在 wifi_sta_scan_and_get 里完成
+    if (wifi_init_once() != ESP_OK) return false;
+    ESP_LOGI(TAG, "WiFi 就绪，可扫描");
+    return true;
+}
+
+// 兼容旧 API:获取结果(内部直接同步扫描)
+int wifi_sta_get_scan_results(wifi_ap_info_t *out, int max_count, int timeout_ms) {
+    (void)timeout_ms;
+    return wifi_sta_scan_and_get(out, max_count, timeout_ms);
 }
 
 esp_err_t wifi_sta_connect_to(const char *ssid, const char *password) {

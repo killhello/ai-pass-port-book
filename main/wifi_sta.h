@@ -14,8 +14,12 @@ typedef struct {
     wifi_auth_mode_t authmode;
 } wifi_ap_info_t;
 
-// 启动异步扫描,完成后回调。
-// 返回: true=扫描已启动, false=启动失败
+// 同步扫描并返回结果。阻塞直到扫描完成或超时。
+// 返回实际找到的网络数(0=失败/无网络)
+int wifi_sta_scan_and_get(wifi_ap_info_t *out, int max_count, int timeout_ms);
+
+// 启动异步扫描(内部已改为同步就绪)。
+// 返回: true=WiFi 就绪可扫描, false=启动失败
 bool wifi_sta_start_scan(void);
 
 // 等待扫描完成(阻塞,最长 timeout_ms)。调用前需先 start_scan。
