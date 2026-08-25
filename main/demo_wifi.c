@@ -1,12 +1,13 @@
-// main/demo_wifi.c —— WiFi 设置页：热点配网(AP + HTML 配网页面)
-// 流程: OK 进入 → 停 WiFi 释放内存 → 开热点 ESP-WiFi → 手机浏览器 192.168.4.1 配置
+// main/demo_wifi.c —— WiFi 设置页：蓝牙(BLE)配网(配网页面为 Web Bluetooth HTML)
+// 流程: OK 进入 → 停 WiFi 释放内存 → BLE 广播 AI-Passport → 手机打开
+//       ble_provisioning.html 连接并提交 WiFi 凭证 → 自动连接
 #include "demo.h"
 #include "font_cn_16.h"
 #include "bsp_display.h"
 #include "ui_pixel.h"
 #include "lvgl.h"
 #include "wifi_sta.h"
-#include "captive_portal.h"
+#include "ble_prov.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
@@ -22,8 +23,8 @@ typedef enum {
 
 // 配网后台任务阶段（volatile, LVGL 定时器轮询）
 typedef enum {
-    PH_WAIT = 0,       // 热点运行中, 等手机提交配置
-    PH_CONNECTING,     // 收到配置, 正在连 WiFi
+    PH_WAIT = 0,       // BLE 广播中, 等手机提交配置
+    PH_CONNECTING,     // 收到凭证, 正在连 WiFi
     PH_OK,             // 连接成功
     PH_FAIL,           // 失败/取消结束
 } prov_phase_t;
@@ -39,40 +40,36 @@ static lv_obj_t *s_prov_hint;
 static wifi_state_t s_state;
 static volatile prov_phase_t s_phase = PH_WAIT;
 static volatile bool s_cancel = false;
-static volatile bool s_submitted = false;   // 手机已提交配置(captive portal 回调置位)
 static volatile bool s_task_alive = false;
 static lv_timer_t *s_poll;
 
 static void show_info_page(void);
 
-static void prov_cb(bool success, void *user) {
-    (void)success; (void)user;
-    s_submitted = true;
-}
-
-// ---- 后台任务: 停 WiFi → 开热点收配置 → 重连 WiFi ----
+// ---- 后台任务: 停 WiFi → BLE 收凭证 → 重连 WiFi ----
 static void prov_task(void *arg) {
     (void)arg;
     // 从看门狗移除: 初始化/连接可能长时间阻塞, 只允许卡死不允许重启
     esp_task_wdt_delete(NULL);
 
-    wifi_sta_stop();                    // 释放 WiFi 驱动内存给 AP+HTTP
+    wifi_sta_stop();                    // 释放 WiFi 驱动内存给 BLE 协议栈
     vTaskDelay(pdMS_TO_TICKS(200));
 
-    esp_err_t err = captive_portal_start(prov_cb, NULL);
+    esp_err_t err = ble_prov_start();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "热点启动失败: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "BLE 启动失败: %s", esp_err_to_name(err));
         s_phase = PH_FAIL;
         s_task_alive = false;
         vTaskDelete(NULL);
         return;
     }
 
-    while (!s_cancel && !s_submitted) {
+    char ssid[33] = {0}, pass[65] = {0};
+    while (!s_cancel) {
+        if (ble_prov_get_creds(ssid, sizeof(ssid), pass, sizeof(pass))) break;
         vTaskDelay(pdMS_TO_TICKS(300));
     }
 
-    captive_portal_stop();              // 停热点, 释放内存
+    ble_prov_stop();                    // 先释放 BLE 内存再连 WiFi
 
     if (s_cancel) {
         ESP_LOGI(TAG, "用户取消配网");
@@ -82,12 +79,11 @@ static void prov_task(void *arg) {
         return;
     }
 
-    ESP_LOGI(TAG, "收到配置, 连接...");
+    ESP_LOGI(TAG, "收到凭证, 连接: %s", ssid);
     s_phase = PH_CONNECTING;
     vTaskDelay(pdMS_TO_TICKS(100));     // 给 UI 一拍刷新"正在连接"
 
-    // 凭证已由 captive portal 存入 NVS, 直接加载并连接
-    esp_err_t rc = wifi_sta_connect_default();
+    esp_err_t rc = wifi_sta_connect(ssid, pass[0] ? pass : NULL);
     s_phase = (rc == ESP_OK) ? PH_OK : PH_FAIL;
     ESP_LOGI(TAG, "连接结果: %s", esp_err_to_name(rc));
     s_task_alive = false;
@@ -143,7 +139,7 @@ static void show_info_page(void) {
     if (wifi_sta_is_connected()) {
         lv_label_set_text_fmt(s_status, "已连接: %s", wifi_sta_current_ssid());
     } else {
-        lv_label_set_text(s_status, "未连接无线\n按 OK 开始热点配网");
+        lv_label_set_text(s_status, "未连接无线\n按 OK 开始蓝牙配网");
     }
 
     s_hint = lv_label_create(s_scr);
@@ -168,7 +164,7 @@ static void show_prov_page(void) {
     lv_obj_t *title = lv_label_create(s_prov_scr);
     lv_obj_set_style_text_font(title, &notosanssc_16, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_label_set_text(title, "热点配网");
+    lv_label_set_text(title, "蓝牙配网");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
     s_prov_status = lv_label_create(s_prov_scr);
@@ -178,10 +174,10 @@ static void show_prov_page(void) {
     lv_label_set_long_mode(s_prov_status, LV_LABEL_LONG_WRAP);
     lv_obj_align(s_prov_status, LV_ALIGN_CENTER, 0, -16);
     lv_label_set_text(s_prov_status,
-        "1. 手机连接热点 ESP-WiFi\n"
-        "2. 浏览器打开:\n"
-        "   http://192.168.4.1\n"
-        "3. 选网络 输密码 连接");
+        "1. 手机打开配网网页\n"
+        "   (ble_provisioning.html)\n"
+        "2. 点扫描 选 AI-Passport\n"
+        "3. 输入WiFi名和密码发送");
 
     s_prov_hint = lv_label_create(s_prov_scr);
     lv_obj_set_style_text_font(s_prov_hint, &notosanssc_16, 0);

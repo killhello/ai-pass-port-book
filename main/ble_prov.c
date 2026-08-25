@@ -34,34 +34,50 @@ static const char *DEV_NAME = "AI-Passport";
 static const char *NVS_NS = "wifi_sta";
 
 // 服务: 8E7F0001-2B4D-4C9A-B5C1-9E3D6F0A5B21
-// 特征: 8E7F0002-2B4D-4C9A-B5C1-9E3D6F0A5B21 (可读可写)
+// 特征: 8E7F0002=SSID(写)  8E7F0003=密码(写)  8E7F0004=控制(写, 0x01 触发连接)
 static const ble_uuid128_t s_svc_uuid = BLE_UUID128_INIT(
     0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
     0x9a,0x4c,0x4d,0x2b,0x01,0x00,0x7f,0x8e);
-static const ble_uuid128_t s_chr_uuid = BLE_UUID128_INIT(
+static const ble_uuid128_t s_ssid_uuid = BLE_UUID128_INIT(
     0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
     0x9a,0x4c,0x4d,0x2b,0x02,0x00,0x7f,0x8e);
+static const ble_uuid128_t s_pass_uuid = BLE_UUID128_INIT(
+    0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
+    0x9a,0x4c,0x4d,0x2b,0x03,0x00,0x7f,0x8e);
+static const ble_uuid128_t s_ctrl_uuid = BLE_UUID128_INIT(
+    0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
+    0x9a,0x4c,0x4d,0x2b,0x04,0x00,0x7f,0x8e);
 
-static uint16_t s_chr_val_h;
+static uint16_t s_ssid_val_h, s_pass_val_h, s_ctrl_val_h;
 static volatile bool s_running, s_got;
+static volatile bool s_have_ssid;           // SSID 已收到, 等密码+控制命令
 static char s_ssid[33], s_pass[65];
 static uint16_t s_conn_h = BLE_HS_CONN_HANDLE_NONE;
 static uint8_t s_own_addr_type;
 
 // GATT 服务表（在 ble_gatts_count_cfg/add_svcs 中注册）
-static int chr_access(uint16_t conn, uint16_t attr,
-                      struct ble_gatt_access_ctxt *ctxt, void *arg);
+static int cb_ssid(uint16_t conn, uint16_t attr,
+                   struct ble_gatt_access_ctxt *ctxt, void *arg);
+static int cb_pass(uint16_t conn, uint16_t attr,
+                   struct ble_gatt_access_ctxt *ctxt, void *arg);
+static int cb_ctrl(uint16_t conn, uint16_t attr,
+                   struct ble_gatt_access_ctxt *ctxt, void *arg);
 static const struct ble_gatt_svc_def s_svcs[] = {
     { .type = BLE_GATT_SVC_TYPE_PRIMARY,
       .uuid = &s_svc_uuid.u,
       .characteristics = (struct ble_gatt_chr_def[]) {
-          { .uuid = &s_chr_uuid.u,
-            .access_cb = chr_access,
-            .arg = NULL,
-            .descriptors = NULL,
+          { .uuid = &s_ssid_uuid.u,
+            .access_cb = cb_ssid,
             .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
-            .min_key_size = 0,
-            .val_handle = &s_chr_val_h },
+            .val_handle = &s_ssid_val_h },
+          { .uuid = &s_pass_uuid.u,
+            .access_cb = cb_pass,
+            .flags = BLE_GATT_CHR_F_WRITE,
+            .val_handle = &s_pass_val_h },
+          { .uuid = &s_ctrl_uuid.u,
+            .access_cb = cb_ctrl,
+            .flags = BLE_GATT_CHR_F_WRITE,
+            .val_handle = &s_ctrl_val_h },
           { 0 } } },
     { 0 }
 };
@@ -79,38 +95,61 @@ static void save_creds(const char *ssid, const char *pass) {
     }
 }
 
-static int chr_access(uint16_t conn, uint16_t attr,
-                      struct ble_gatt_access_ctxt *ctxt, void *arg) {
+// 通用写入: 取 mbuf 全部数据到 buf
+static int write_to_buf(struct ble_gatt_access_ctxt *ctxt, char *buf, int bufsz) {
+    uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
+    if (len > (uint16_t)bufsz - 1) len = (uint16_t)bufsz - 1;
+    if (ble_hs_mbuf_to_flat(ctxt->om, buf, len, &len) != 0)
+        return -1;
+    buf[len] = 0;
+    // 去 CR
+    for (char *p = buf; *p; p++) if (*p == 13) memmove(p, p + 1, strlen(p));
+    return 0;
+}
+
+static int cb_ssid(uint16_t conn, uint16_t attr,
+                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn; (void)attr; (void)arg;
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-        char info[96];
-        int n = snprintf(info, sizeof(info), "ssid=%s", s_ssid[0] ? s_ssid : "-");
+        char info[48];
+        int n = snprintf(info, sizeof(info), "ssid=%s", s_have_ssid ? s_ssid : "-");
         return os_mbuf_append(ctxt->om, info, n);
     }
-    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return BLE_ATT_ERR_UNLIKELY;
+    char buf[40] = {0};
+    if (write_to_buf(ctxt, buf, sizeof(buf)) != 0) return BLE_ATT_ERR_INSUFFICIENT_RES;
+    if (!buf[0]) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    strlcpy(s_ssid, buf, sizeof(s_ssid));
+    s_have_ssid = true;
+    ESP_LOGI(TAG, "收到 SSID: %s", s_ssid);
+    return 0;
+}
 
-    uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
-    char buf[112] = {0};
-    if (len > sizeof(buf) - 1) len = sizeof(buf) - 1;
-    if (ble_hs_mbuf_to_flat(ctxt->om, buf, len, &len) != 0)
-        return BLE_ATT_ERR_INSUFFICIENT_RES;
-    buf[len] = 0;
+static int cb_pass(uint16_t conn, uint16_t attr,
+                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)conn; (void)attr; (void)arg;
+    char buf[68] = {0};
+    if (write_to_buf(ctxt, buf, sizeof(buf)) != 0) return BLE_ATT_ERR_INSUFFICIENT_RES;
+    strlcpy(s_pass, buf, sizeof(s_pass));
+    ESP_LOGI(TAG, "收到密码, 长度=%d", (int)strlen(buf));
+    return 0;
+}
 
-    // 去 CR 后按第一个 LF 分两行: SSID / 密码
-    for (char *p = buf; *p; p++) if (*p == 13) memmove(p, p + 1, strlen(p));
-    char *nl = strchr(buf, 10);
-    const char *pass = "";
-    if (nl) { *nl = 0; pass = nl + 1; }
-    if (!buf[0]) {
-        ESP_LOGW(TAG, "收到空 SSID");
+static int cb_ctrl(uint16_t conn, uint16_t attr,
+                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)conn; (void)attr; (void)arg;
+    char buf[8] = {0};
+    if (write_to_buf(ctxt, buf, sizeof(buf)) != 0) return BLE_ATT_ERR_INSUFFICIENT_RES;
+    if ((uint8_t)buf[0] != 0x01) {
+        ESP_LOGW(TAG, "未知控制命令 0x%02x", (uint8_t)buf[0]);
+        return 0;
+    }
+    if (!s_have_ssid) {
+        ESP_LOGW(TAG, "连接命令但未收到 SSID");
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     }
-
-    strlcpy(s_ssid, buf, sizeof(s_ssid));
-    strlcpy(s_pass, pass, sizeof(s_pass));
+    ESP_LOGI(TAG, "控制命令: 触发连接");
     s_got = true;
     save_creds(s_ssid, s_pass);
-    ESP_LOGI(TAG, "收到配网凭证 SSID=%s 密码长度=%d", s_ssid, (int)strlen(pass));
     if (s_conn_h != BLE_HS_CONN_HANDLE_NONE)
         ble_gap_terminate(s_conn_h, BLE_ERR_REM_USER_CONN_TERM);
     return 0;
@@ -186,6 +225,7 @@ static void host_task(void *param) {
 esp_err_t ble_prov_start(void) {
     if (s_running) return ESP_ERR_INVALID_STATE;
     s_got = false;
+    s_have_ssid = false;
     s_ssid[0] = 0;
     s_pass[0] = 0;
 
