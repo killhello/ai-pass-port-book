@@ -15,9 +15,6 @@
 #include "lvgl.h"
 #include "font_cn_16.h"
 #include "esp_log.h"
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include "esp_netif.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
@@ -25,64 +22,6 @@
 #include "boot_animation.h"
 
 static const char *TAG = "main";
-
-// 简单 WiFi 扫描测试任务(串口直接看结果，无 UI 干扰)
-static void wifi_test_task(void *arg) {
-    (void)arg;
-    vTaskDelay(pdMS_TO_TICKS(3000));  // 等待系统稳定
-    
-    ESP_LOGI(TAG, "=== WiFi 硬件测试开始 ===");
-    
-    // 1. 初始化网络栈
-    esp_netif_init();
-    esp_event_loop_create_default();
-    esp_netif_create_default_wifi_sta();
-    
-    // 2. 初始化 WiFi
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    
-    // 设置国家码
-    wifi_country_t country = { .cc="CN", .schan=1, .nchan=13, .policy=WIFI_COUNTRY_POLICY_AUTO };
-    esp_wifi_set_country(&country);
-    
-    ESP_ERROR_CHECK(esp_wifi_start());
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    
-    // 3. 禁用省电模式
-    esp_wifi_set_ps(WIFI_PS_NONE);
-    
-    // 4. 扫描测试
-    ESP_LOGI(TAG, "开始扫描...");
-    wifi_scan_config_t scan_cfg = { 0 };
-    scan_cfg.show_hidden = false;
-    
-    esp_err_t err = esp_wifi_scan_start(&scan_cfg, true);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "扫描启动失败: %s", esp_err_to_name(err));
-    } else {
-        uint16_t ap_count = 0;
-        esp_wifi_scan_get_ap_num(&ap_count);
-        ESP_LOGI(TAG, "扫描完成，发现 %d 个 AP", ap_count);
-        
-        if (ap_count > 0) {
-            uint16_t fetch = ap_count < 20 ? ap_count : 20;
-            wifi_ap_record_t *records = calloc(fetch, sizeof(wifi_ap_record_t));
-            if (records) {
-                esp_wifi_scan_get_ap_records(&fetch, records);
-                for (int i = 0; i < fetch; i++) {
-                    ESP_LOGI(TAG, "  [%d] SSID: %-32s  RSSI: %4d  Auth: %d  Channel: %d",
-                             i, records[i].ssid, records[i].rssi, records[i].authmode, records[i].primary);
-                }
-                free(records);
-            }
-        }
-    }
-    
-    ESP_LOGI(TAG, "=== WiFi 硬件测试结束 ===");
-    vTaskDelete(NULL);
-}
 
 static const demo_entry_t DEMOS[] = {
     { "显示", demo_display_enter, demo_display_exit, demo_display_key },
@@ -220,9 +159,6 @@ void app_main(void) {
         ESP_LOGE(TAG, "LVGL 初始化失败");
         return;
     }
-
-    // 启动 WiFi 硬件测试任务(串口直接看结果)
-    xTaskCreate(wifi_test_task, "wifi_test", 4096, NULL, 5, NULL);
 
     s_ok[0] = true;                                   // 显示
     s_ok[1] = (bsp_button_init(on_key, NULL) == ESP_OK);  // 按键
