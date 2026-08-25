@@ -61,10 +61,23 @@ static esp_err_t wifi_init_once(void) {
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, NULL));
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+
+    // 设置国家码 CN (中国)，确保 1-13 信道可用
+    wifi_country_t country = {
+        .cc = "CN",
+        .schan = 1,
+        .nchan = 13,
+        .policy = WIFI_COUNTRY_POLICY_AUTO,
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_country(&country));
+
     ESP_ERROR_CHECK(esp_wifi_start());
 
+    // 等待 WiFi 任务完全启动
+    vTaskDelay(pdMS_TO_TICKS(200));
+
     s_inited = true;
-    ESP_LOGI(TAG, "WiFi 初始化完成");
+    ESP_LOGI(TAG, "WiFi 初始化完成 (国家码 CN)");
     return ESP_OK;
 }
 
@@ -73,8 +86,8 @@ static esp_err_t wifi_init_once(void) {
 int wifi_sta_scan_and_get(wifi_ap_info_t *out, int max_count, int timeout_ms) {
     if (wifi_init_once() != ESP_OK) return 0;
 
-    // 等待 WiFi 射频就绪
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    // 等待 WiFi 射频就绪 (2s)
+    vTaskDelay(pdMS_TO_TICKS(2000));
 
     // 最简单的扫描：用默认配置(全零)，ESP-IDF 内部会用合理默认值
     wifi_scan_config_t scan_cfg = { 0 };
