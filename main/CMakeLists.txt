@@ -17,5 +17,5 @@ idf_component_register(
          "font_cn_16.c"
          "demo_about.c"
     INCLUDE_DIRS "."
-    REQUIRES bsp spiffs nvs_flash esp_wifi esp_netif esp_event bt json mbedtls
+    REQUIRES bsp spiffs nvs_flash esp_wifi esp_netif esp_event bt json mbedtls esp_http_client
 )

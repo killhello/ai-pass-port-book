@@ -33,6 +33,21 @@ static const char *TAG = "ble_prov";
 static const char *DEV_NAME = "AI-Passport";
 static const char *NVS_NS = "wifi_sta";
 
+// 服务: 8E7F0001-2B4D-4C9A-B5C1-9E3D6F0A5B21
+// 特征: 8E7F0002-2B4D-4C9A-B5C1-9E3D6F0A5B21 (可读可写)
+static const ble_uuid128_t s_svc_uuid = BLE_UUID128_INIT(
+    0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
+    0x9a,0x4c,0x4d,0x2b,0x01,0x00,0x7f,0x8e);
+static const ble_uuid128_t s_chr_uuid = BLE_UUID128_INIT(
+    0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
+    0x9a,0x4c,0x4d,0x2b,0x02,0x00,0x7f,0x8e);
+
+static uint16_t s_chr_val_h;
+static volatile bool s_running, s_got;
+static char s_ssid[33], s_pass[65];
+static uint16_t s_conn_h = BLE_HS_CONN_HANDLE_NONE;
+static uint8_t s_own_addr_type;
+
 // GATT 服务表（在 ble_gatts_count_cfg/add_svcs 中注册）
 static int chr_access(uint16_t conn, uint16_t attr,
                       struct ble_gatt_access_ctxt *ctxt, void *arg);
@@ -51,21 +66,6 @@ static const struct ble_gatt_svc_def s_svcs[] = {
     { 0 }
 };
 static void adv_restart(void);
-
-// 服务: 8E7F0001-2B4D-4C9A-B5C1-9E3D6F0A5B21
-// 特征: 8E7F0002-2B4D-4C9A-B5C1-9E3D6F0A5B21 (可读可写)
-static const ble_uuid128_t s_svc_uuid = BLE_UUID128_INIT(
-    0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
-    0x9a,0x4c,0x4d,0x2b,0x01,0x00,0x7f,0x8e);
-static const ble_uuid128_t s_chr_uuid = BLE_UUID128_INIT(
-    0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
-    0x9a,0x4c,0x4d,0x2b,0x02,0x00,0x7f,0x8e);
-
-static uint16_t s_chr_val_h;
-static volatile bool s_running, s_got;
-static char s_ssid[33], s_pass[65];
-static uint16_t s_conn_h = BLE_HS_CONN_HANDLE_NONE;
-static uint8_t s_own_addr_type;
 
 static void save_creds(const char *ssid, const char *pass) {
     nvs_handle_t h;
@@ -151,7 +151,7 @@ static void adv_restart(void) {
 
     struct ble_hs_adv_fields r;
     memset(&r, 0, sizeof(r));
-    r.uuids128 = (const ble_uuid_t *)&s_svc_uuid;
+    r.uuids128 = &s_svc_uuid;
     r.num_uuids128 = 1;
     r.uuids128_is_complete = 1;
     rc = ble_gap_adv_rsp_set_fields(&r);
