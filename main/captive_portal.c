@@ -9,6 +9,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include <string.h>
+#include "esp_heap_caps.h"
 
 static const char *TAG = "captive";
 static const char *AP_SSID = "ESP-WiFi";
@@ -189,6 +190,8 @@ esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
     s_user_cb = cb;
     s_user_data = user;
 
+    ESP_LOGI(TAG, "启动前堆: %lu KB", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024);
+
     // 设置 AP+STA 模式
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 
@@ -213,7 +216,7 @@ esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
     // HTTP 服务器
     httpd_config_t http_cfg = HTTPD_DEFAULT_CONFIG();
     http_cfg.max_uri_handlers = 6;
-    http_cfg.stack_size = 16384;
+    http_cfg.stack_size = 4096;
     err = httpd_start(&s_httpd, &http_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "HTTP 启动失败: %s", esp_err_to_name(err));
