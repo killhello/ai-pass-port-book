@@ -219,7 +219,7 @@ esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
 
     // 启动 WiFi
-    esp_err_t err = esp_wifi_start();
+    err = esp_wifi_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "WiFi start 失败: %s", esp_err_to_name(err));
         return err;
