@@ -191,13 +191,22 @@ esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
     s_user_cb = cb;
     s_user_data = user;
 
-    // 先停掉 WiFi 释放内存，再重新初始化为 AP+STA
-    wifi_sta_stop();
+    // 完全释放 WiFi 驱动内存
+    esp_wifi_stop();
+    esp_wifi_deinit();
     vTaskDelay(pdMS_TO_TICKS(100));
 
-    ESP_LOGI(TAG, "WiFi 停止后堆: %lu KB", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024);
+    size_t free1 = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+    ESP_LOGI(TAG, "WiFi 彻底释放后堆: %lu KB", (unsigned long)free1 / 1024);
 
-    // 设置 AP+STA 模式
+    // 重新初始化 WiFi 驱动（AP+STA 模式）
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    esp_err_t err = esp_wifi_init(&cfg);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi reinit 失败: %s", esp_err_to_name(err));
+        return err;
+    }
+
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 
     // AP 配置
@@ -263,8 +272,9 @@ esp_err_t captive_portal_stop(void) {
     if (!s_running) return ESP_OK;
     if (s_httpd) { httpd_stop(s_httpd); s_httpd = NULL; }
     esp_wifi_stop();
+    esp_wifi_deinit();
     s_running = false;
-    ESP_LOGI(TAG, "热点配网已停止");
+    ESP_LOGI(TAG, "热点配网已停止，WiFi 已释放");
     return ESP_OK;
 }
 

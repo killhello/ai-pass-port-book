@@ -222,9 +222,10 @@ void wifi_sta_unregister_cb(wifi_sta_cb_t cb) {
 
 void wifi_sta_stop(void) {
     esp_wifi_stop();
+    esp_wifi_deinit();
     s_inited = false;
     s_connected = false;
-    ESP_LOGI(TAG, "WiFi STA 已停止");
+    ESP_LOGI(TAG, "WiFi STA 已彻底停止");
 }
 
 esp_err_t wifi_sta_connect_default(void) {
