@@ -26,9 +26,9 @@ jobs:
         run: |
           . $HOME/esp-idf/export.sh
 
-          idf.py build
+          idf.py build 2>&1 | tee build.log
 
-          test -f build/FoloToy-AI-Passport.bin || { echo "FAIL: firmware not found"; ls -la build/; exit 1; }
+          test -f build/FoloToy-AI-Passport.bin || { echo "FAIL: firmware not found"; ls -la build/; tail -100 build.log; exit 1; }
           ls -lh build/FoloToy-AI-Passport.bin
 
           # SPIFFS 镜像参数必须与 sdkconfig.defaults 一致:
