@@ -1,6 +1,7 @@
 // main/captive_portal.c —— 热点配网：AP + HTTP 配网页面
 // 手机连上 ESP32 热点后自动弹出配网页面（或手动访问 192.168.4.1）
 #include "captive_portal.h"
+#include "wifi_sta.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -190,7 +191,11 @@ esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
     s_user_cb = cb;
     s_user_data = user;
 
-    ESP_LOGI(TAG, "启动前堆: %lu KB", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024);
+    // 先停掉 WiFi 释放内存，再重新初始化为 AP+STA
+    wifi_sta_stop();
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    ESP_LOGI(TAG, "WiFi 停止后堆: %lu KB", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024);
 
     // 设置 AP+STA 模式
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));

@@ -220,6 +220,13 @@ void wifi_sta_unregister_cb(wifi_sta_cb_t cb) {
     if (s_user_cb == cb) { s_user_cb = NULL; s_user_data = NULL; }
 }
 
+void wifi_sta_stop(void) {
+    esp_wifi_stop();
+    s_inited = false;
+    s_connected = false;
+    ESP_LOGI(TAG, "WiFi STA 已停止");
+}
+
 esp_err_t wifi_sta_connect_default(void) {
     return wifi_sta_autoconnect();
 }
