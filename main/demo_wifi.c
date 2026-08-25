@@ -11,6 +11,7 @@
 #include <string.h>
 
 static const char *TAG = "demo_wifi";
+(void)TAG;  // 仅为消除 unused 变量警告
 
 #define MAX_AP  12
 
@@ -184,7 +185,7 @@ void demo_wifi_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
         } else {
             // 连接选中的网络
             s_connecting = true;
-            char buf[48];
+            char buf[64];
             snprintf(buf, sizeof(buf), "正在连接 %s ...", s_aps[s_sel].ssid);
             lv_label_set_text(s_status, buf);
             lv_label_set_text(s_hint, "");

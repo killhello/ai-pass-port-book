@@ -45,7 +45,7 @@ static esp_err_t wifi_init_once(void) {
 
     s_got_ip = xSemaphoreCreateBinary();
     s_scan_done = xSemaphoreCreateBinary();
-    if (!s_got_ip || !s_scan_done) return ERR_NO_MEM;
+    if (!s_got_ip || !s_scan_done) return ESP_ERR_NO_MEM;
 
     esp_err_t err = esp_netif_init();
     if (err != ESP_OK) return err;
