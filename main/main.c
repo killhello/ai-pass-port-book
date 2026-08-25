@@ -31,6 +31,7 @@ static const demo_entry_t DEMOS[] = {
     { "WiFi", demo_wifi_enter,    demo_wifi_exit,    demo_wifi_key    },
     { "电子书", demo_ebook_enter, demo_ebook_exit,   demo_ebook_key   },
     { "AI",     demo_ai_enter,    demo_ai_exit,      demo_ai_key      },
+    { "关于",   demo_about_enter, demo_about_exit,   demo_about_key   },
 };
 #define DEMO_COUNT (sizeof(DEMOS) / sizeof(DEMOS[0]))
 
@@ -58,17 +59,14 @@ static void menu_refresh(void) {
 static void menu_build(void) {
     s_menu_scr = ui_pixel_screen_create("FoloToy");
 
-    // 还原原版 2×3 网格(前 6 项),第 7 项(WiFi)单独居中放第 4 行
     for (size_t i = 0; i < DEMO_COUNT; i++) {
         int x, y, w = 102, h = 72;
         if (i < 6) {
-            // 原版 2 列 × 3 行
             x = 11 + (int)(i % 2) * 112;
             y = 46 + (int)(i / 2) * 78;
         } else {
-            // 第 7 项:居中单独一行
             x = 11;
-            y = 46 + 3 * 78;
+            y = 46 + 3 * 78 + (int)(i - 6) * 78;
             w = 224;
         }
         s_cards[i] = ui_pixel_panel_create(s_menu_scr, x, y, w, h, UI_PAPER);
@@ -167,6 +165,7 @@ void app_main(void) {
     s_ok[4] = true;                                   // WiFi(自身处理失败)
     s_ok[5] = s_spiffs_ok;                            // 电子书
     s_ok[6] = true;                                   // AI
+    s_ok[7] = true;                                   // 关于
 
     if (bsp_lvgl_lock(1000)) { enter_menu(); bsp_lvgl_unlock(); }
 
