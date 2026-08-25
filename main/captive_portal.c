@@ -213,7 +213,7 @@ esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
     // HTTP 服务器
     httpd_config_t http_cfg = HTTPD_DEFAULT_CONFIG();
     http_cfg.max_uri_handlers = 6;
-    http_cfg.stack_size = 8192;
+    http_cfg.stack_size = 16384;
     err = httpd_start(&s_httpd, &http_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "HTTP 启动失败: %s", esp_err_to_name(err));
