@@ -7,6 +7,7 @@
 #include "wifi_sta.h"
 #include "captive_portal.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include <string.h>
 
 static const char *TAG __attribute__((unused)) = "demo_wifi";
@@ -113,6 +114,11 @@ static void deferred_start(lv_timer_t *timer) {
     if (!s_start_pending) { lv_timer_delete(timer); return; }
     s_start_pending = false;
     lv_timer_delete(timer);
+
+    size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+    char buf[128];
+    snprintf(buf, sizeof(buf), "堆剩余: %lu KB\n正在启动热点...", (unsigned long)(free_heap / 1024));
+    if (s_prov_status) lv_label_set_text(s_prov_status, buf);
 
     esp_err_t err = captive_portal_start(prov_cb, NULL);
     if (err != ESP_OK) {
