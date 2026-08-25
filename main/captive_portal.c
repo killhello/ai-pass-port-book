@@ -194,10 +194,11 @@ static void portal_task(void *param) {
     esp_wifi_deinit();
     vTaskDelay(pdMS_TO_TICKS(200));
 
-    size_t free1 = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-    ESP_LOGI(TAG, "WiFi 释放后堆: %lu KB", (unsigned long)free1 / 1024);
+    ESP_LOGI(TAG, "WiFi 释放后堆: %lu KB, 最低: %lu KB",
+        (unsigned long)esp_get_free_heap_size() / 1024,
+        (unsigned long)esp_get_minimum_free_heap_size() / 1024);
 
-    // 重新初始化 WiFi 驱动（AP+STA 模式）
+    // 重新初始化 WiFi 驱动（纯 AP 模式，不占 STA 内存）
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_err_t err = esp_wifi_init(&cfg);
     if (err != ESP_OK) {
@@ -206,7 +207,7 @@ static void portal_task(void *param) {
         return;
     }
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
 
     // AP 配置
     wifi_config_t ap_cfg = {0};
@@ -225,12 +226,19 @@ static void portal_task(void *param) {
         return;
     }
 
-    vTaskDelay(pdMS_TO_TICKS(500));
+    vTaskDelay(pdMS_TO_TICKS(300));
 
-    // HTTP 服务器
+    ESP_LOGI(TAG, "AP 启动后堆: %lu KB, 最低: %lu KB",
+        (unsigned long)esp_get_free_heap_size() / 1024,
+        (unsigned long)esp_get_minimum_free_heap_size() / 1024);
+
+    // HTTP 服务器（精简配置）
     httpd_config_t http_cfg = HTTPD_DEFAULT_CONFIG();
     http_cfg.max_uri_handlers = 6;
     http_cfg.stack_size = 4096;
+    http_cfg.max_resp_headers = 4;
+    http_cfg.recv_wait_timeout = 5;
+    http_cfg.send_wait_timeout = 5;
     err = httpd_start(&s_httpd, &http_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "HTTP 启动失败: %s", esp_err_to_name(err));
