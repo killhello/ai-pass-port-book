@@ -256,3 +256,8 @@ esp_err_t wifi_sta_start_ap_fallback(const char *ap_ssid, const char *ap_pass) {
 
     return esp_wifi_set_config(WIFI_IF_AP, &ap_cfg);
 }
+
+// 兼容旧 API：使用 NVS 保存的凭证自动连接
+esp_err_t wifi_sta_connect_default(void) {
+    return wifi_sta_autoconnect();
+}

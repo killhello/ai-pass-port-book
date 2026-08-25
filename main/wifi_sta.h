@@ -55,3 +55,6 @@ esp_err_t wifi_sta_init(void);
 
 // 启动 AP 回退模式（供配网用，可选）
 esp_err_t wifi_sta_start_ap_fallback(const char *ap_ssid, const char *ap_pass);
+
+// 使用 NVS 保存的凭证自动连接（兼容旧 API 无参调用）
+esp_err_t wifi_sta_connect_default(void);
