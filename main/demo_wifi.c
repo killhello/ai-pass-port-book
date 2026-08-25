@@ -8,7 +8,6 @@
 #include "wifi_sta.h"
 #include "captive_portal.h"
 #include "esp_log.h"
-#include "esp_event.h"
 #include <string.h>
 
 static const char *TAG __attribute__((unused)) = "demo_wifi";
@@ -27,10 +26,6 @@ static lv_obj_t *s_prov_status;
 static lv_obj_t *s_prov_hint;
 
 static wifi_state_t s_state;
-
-static void on_wifi_event(wifi_sta_evt_t evt, void *data, void *user) {
-    // 由 LVGL 线程安全地更新 UI 需要 post
-}
 
 static void prov_cb(bool success, void *user) {
     ESP_LOGI(TAG, "配网完成: %s", success ? "成功" : "失败");
