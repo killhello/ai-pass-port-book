@@ -1,5 +1,4 @@
 // main/demo_wifi.c —— WiFi 设置页：一键热点配网
-// 按键: OK=开始配网, 长按 OK=返回菜单
 #include "demo.h"
 #include "font_cn_16.h"
 #include "bsp_display.h"
@@ -13,8 +12,8 @@
 static const char *TAG __attribute__((unused)) = "demo_wifi";
 
 typedef enum {
-    STATE_INFO,        // 信息页：显示连接状态
-    STATE_PROV,        // 配网中
+    STATE_INFO,
+    STATE_PROV,
 } wifi_state_t;
 
 static lv_obj_t *s_scr;
@@ -26,6 +25,7 @@ static lv_obj_t *s_prov_status;
 static lv_obj_t *s_prov_hint;
 
 static wifi_state_t s_state;
+static bool s_start_pending = false;
 
 static void prov_cb(bool success, void *user) {
     ESP_LOGI(TAG, "配网完成: %s", success ? "成功" : "失败");
@@ -52,8 +52,7 @@ static void show_info_page(void) {
     lv_obj_align(s_status, LV_ALIGN_CENTER, 0, -20);
 
     if (wifi_sta_is_connected()) {
-        lv_label_set_text_fmt(s_status, "已连接: %s\nIP: 已获取",
-                              wifi_sta_current_ssid());
+        lv_label_set_text_fmt(s_status, "已连接: %s", wifi_sta_current_ssid());
     } else {
         lv_label_set_text(s_status, "未连接 WiFi\n按 OK 开始配网");
     }
@@ -88,9 +87,9 @@ static void show_prov_page(void) {
     lv_obj_align(s_prov_status, LV_ALIGN_CENTER, 0, -20);
     lv_label_set_text(s_prov_status,
         "1. 手机连接热点: ESP-WiFi\n"
-        "2. 打开浏览器访问:\n"
+        "2. 浏览器访问:\n"
         "   http://192.168.4.1\n"
-        "3. 选择网络并输入密码");
+        "3. 选网络 输密码 连接");
 
     s_prov_hint = lv_label_create(s_prov_scr);
     lv_obj_set_style_text_font(s_prov_hint, &notosanssc_16, 0);
@@ -110,28 +109,32 @@ static void destroy_prov(void) {
     }
 }
 
+// LVGL timer 回调：延迟启动 captive portal（避开 LVGL 锁）
+static void deferred_start(lv_timer_t *timer) {
+    if (!s_start_pending) { lv_timer_delete(timer); return; }
+    s_start_pending = false;
+    lv_timer_delete(timer);
+
+    esp_err_t err = captive_portal_start(prov_cb, NULL);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "配网启动失败: %s", esp_err_to_name(err));
+        if (s_prov_status) lv_label_set_text(s_prov_status, "启动失败\n长按 OK 返回");
+    }
+}
+
 void demo_wifi_enter(void) {
     s_state = STATE_INFO;
     show_info_page();
 }
 
 void demo_wifi_exit(void) {
-    if (s_scr) {
-        lv_obj_delete(s_scr);
-        s_scr = NULL;
-        s_title = NULL;
-        s_status = NULL;
-        s_hint = NULL;
-    }
+    if (s_scr) { lv_obj_delete(s_scr); s_scr = NULL; s_title = NULL; s_status = NULL; s_hint = NULL; }
     destroy_prov();
-    if (captive_portal_is_running()) {
-        captive_portal_stop();
-    }
+    if (captive_portal_is_running()) captive_portal_stop();
 }
 
 void demo_wifi_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
     if (s_state == STATE_PROV) {
-        // 配网中：长按 OK 取消
         if (btn == BSP_BTN_OK && ev == BSP_BTN_LONG) {
             captive_portal_stop();
             destroy_prov();
@@ -139,15 +142,10 @@ void demo_wifi_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
         }
         return;
     }
-
-    // 信息页
     if (ev == BSP_BTN_CLICK && btn == BSP_BTN_OK) {
-        // 开始配网
         show_prov_page();
-        esp_err_t err = captive_portal_start(prov_cb, NULL);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "配网启动失败: %s", esp_err_to_name(err));
-            lv_label_set_text(s_prov_status, "启动失败\n长按 OK 返回");
-        }
+        // 用 LVGL timer 延迟 200ms 启动，避开 LVGL 锁
+        s_start_pending = true;
+        lv_timer_create(deferred_start, 200, NULL);
     }
 }
