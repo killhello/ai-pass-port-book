@@ -31,12 +31,12 @@ static void set_status(const char *text) {
 }
 
 static void play_tone(void) {
-    set_status("playing 1kHz...");
-    if (bsp_audio_set_format(SAMPLE_RATE, 16, 1) != ESP_OK) { set_status("format failed"); return; }
+    set_status("正在播放 1kHz...");
+    if (bsp_audio_set_format(SAMPLE_RATE, 16, 1) != ESP_OK) { set_status("格式设置失败"); return; }
     bsp_audio_set_volume(80);
 
     int16_t *buf = malloc(CHUNK_SAMPLES * sizeof(int16_t));
-    if (!buf) { set_status("out of memory"); return; }
+    if (!buf) { set_status("内存不足"); return; }
 
     const int period = SAMPLE_RATE / TONE_HZ;        // 每个方波周期的采样数
     int total = SAMPLE_RATE * TONE_MS / 1000;
@@ -51,11 +51,11 @@ static void play_tone(void) {
         total -= n;
     }
     free(buf);
-    set_status("done. OK: tone  UP: record");
+    set_status("完成。OK: 音调  上: 录音回放");
 }
 
 static void record_and_play(void) {
-    if (bsp_audio_set_format(SAMPLE_RATE, 16, 1) != ESP_OK) { set_status("format failed"); return; }
+    if (bsp_audio_set_format(SAMPLE_RATE, 16, 1) != ESP_OK) { set_status("格式设置失败"); return; }
 
     size_t total = (size_t)SAMPLE_RATE * RECORD_SEC;
     int16_t *rec = malloc(total * sizeof(int16_t));   // 3s @16k 16bit = 96KB
@@ -63,11 +63,11 @@ static void record_and_play(void) {
         // C3 无 PSRAM,96KB 可能分配不到 —— 明确告知而不是静默失败
         ESP_LOGE(TAG, "录音缓冲 %u 字节分配失败(C3 内存紧张,可缩短 RECORD_SEC)",
                  (unsigned)(total * sizeof(int16_t)));
-        set_status("record buffer alloc failed");
+        set_status("录音缓冲分配失败");
         return;
     }
 
-    set_status("recording 3s... speak now");
+    set_status("正在录音 3 秒...请说话");
     size_t got = 0;
     while (got < total) {
         size_t n = (total - got) < CHUNK_SAMPLES ? (total - got) : CHUNK_SAMPLES;
@@ -75,14 +75,14 @@ static void record_and_play(void) {
         got += n;
     }
 
-    set_status("playing back...");
+    set_status("正在回放...");
     bsp_audio_set_volume(80);
     for (size_t off = 0; off < got; off += CHUNK_SAMPLES) {
         size_t n = (got - off) < CHUNK_SAMPLES ? (got - off) : CHUNK_SAMPLES;
         bsp_audio_write(rec + off, n * sizeof(int16_t));
     }
     free(rec);
-    set_status("done. OK: tone  UP: record");
+    set_status("完成。OK: 音调  上: 录音回放");
 }
 
 static void audio_task(void *arg) {
@@ -95,7 +95,7 @@ static void audio_task(void *arg) {
 }
 
 void demo_audio_enter(void) {
-    s_scr = ui_pixel_screen_create("AUDIO");
+    s_scr = ui_pixel_screen_create("音频");
     lv_obj_t *panel = ui_pixel_panel_create(s_scr, 18, 62, 204, 168, UI_PAPER);
 
     lv_obj_t *record = ui_pixel_panel_create(panel, 58, 12, 72, 72, UI_INK);
@@ -111,7 +111,7 @@ void demo_audio_enter(void) {
     lv_obj_set_style_text_align(s_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(s_status, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(s_status, 176);
-    lv_label_set_text(s_status, "OK: 1kHz TONE\nUP: RECORD + PLAY");
+    lv_label_set_text(s_status, "OK: 1kHz 音调\n上: 录音+回放");
     lv_obj_align(s_status, LV_ALIGN_BOTTOM_MID, 0, -9);
 
     s_mascot = ui_pixel_mascot_create(s_scr, 101, 238);

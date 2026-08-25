@@ -12,6 +12,7 @@ idf_component_register(
          "wifi_sta.c"
          "ai_chat.c"
          "demo_ai.c"
+         "demo_wifi.c"
          "font_cn_16.c"
     INCLUDE_DIRS "."
     REQUIRES bsp spiffs nvs_flash esp_wifi esp_netif esp_event esp_http_client json mbedtls

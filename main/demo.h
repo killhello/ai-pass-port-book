@@ -29,3 +29,6 @@ void demo_ebook_key(bsp_btn_t btn, bsp_btn_ev_t ev);
 
 void demo_ai_enter(void); void demo_ai_exit(void);
 void demo_ai_key(bsp_btn_t btn, bsp_btn_ev_t ev);
+
+void demo_wifi_enter(void); void demo_wifi_exit(void);
+void demo_wifi_key(bsp_btn_t btn, bsp_btn_ev_t ev);

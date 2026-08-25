@@ -57,7 +57,7 @@ void demo_ebook_enter(void) {
     s_screen_off = false;
 
     // 创建屏幕
-    s_scr = ui_pixel_screen_create("E-Book");
+    s_scr = ui_pixel_screen_create("电子书");
 
     // 正文面板
     lv_obj_t *panel = ui_pixel_panel_create(s_scr, 10, 48, 220, 240, UI_PAPER);

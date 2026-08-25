@@ -13,7 +13,7 @@ static int s_color_idx;
 static int s_bl_idx;
 
 static const uint32_t COLORS[] = { 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFFFF, 0x000000 };
-static const char    *COLOR_NAME[] = { "RED", "GREEN", "BLUE", "WHITE", "BLACK" };
+static const char    *COLOR_NAME[] = { "红色", "绿色", "蓝色", "白色", "黑色" };
 #define COLOR_COUNT (sizeof(COLORS) / sizeof(COLORS[0]))
 
 static const uint8_t BL_LEVELS[] = { 100, 50, 10 };
@@ -24,7 +24,7 @@ static void refresh(void) {
     // 文字用与背景相反的明度,保证任何色块上都看得见
     bool dark = (s_color_idx == 2 || s_color_idx == 4);   // BLUE / BLACK
     lv_obj_set_style_text_color(s_info, dark ? lv_color_white() : lv_color_black(), 0);
-    lv_label_set_text_fmt(s_info, "%s\n\nBACKLIGHT %d%%\n\nOK: NEXT COLOR\nUP/DOWN: LIGHT",
+    lv_label_set_text_fmt(s_info, "%s\n\n亮度 %d%%\n\nOK: 下一色\n上/下: 调光",
                           COLOR_NAME[s_color_idx], BL_LEVELS[s_bl_idx]);
 }
 
@@ -33,7 +33,7 @@ void demo_display_enter(void) {
     s_bl_idx = 0;
     bsp_display_backlight(BL_LEVELS[s_bl_idx]);
 
-    s_scr = ui_pixel_screen_create("DISPLAY");
+    s_scr = ui_pixel_screen_create("显示");
     s_swatch = ui_pixel_panel_create(s_scr, 18, 58, 204, 188, COLORS[s_color_idx]);
     s_info = lv_label_create(s_swatch);
     lv_obj_set_style_text_font(s_info, &lv_font_montserrat_14, 0);

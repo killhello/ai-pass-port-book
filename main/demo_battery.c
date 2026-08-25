@@ -25,7 +25,7 @@ static void tick(lv_timer_t *t) {
 }
 
 void demo_battery_enter(void) {
-    s_scr = ui_pixel_screen_create("BATTERY");
+    s_scr = ui_pixel_screen_create("电池");
     lv_obj_t *panel = ui_pixel_panel_create(s_scr, 24, 67, 192, 157, UI_YELLOW);
 
     s_soc = lv_label_create(panel);

@@ -1,11 +1,10 @@
-// main/ai_config.h —— WiFi 与 AI 接口配置。
-// ★ 本仓库若为 public,密钥会随源码公开,请将仓库设为 Private 或改用 CI Secrets。
+// main/ai_config.h —— AI 接口配置(WiFi 由用户在设备上选择)。
 #pragma once
 
-// --- WiFi(2.4GHz) ---
-#define WIFI_SSID     "luo2.4g"
-#define WIFI_PASS     "5886721luo"
-#define WIFI_CONNECT_TIMEOUT_MS  20000   // 连接超时,超时返回失败
+// --- WiFi ---
+#define WIFI_SSID     ""   // 不再硬编码,由用户在 WiFi 设置页选择
+#define WIFI_PASS     ""
+#define WIFI_CONNECT_TIMEOUT_MS  20000
 
 // --- AI 接口(OpenAI 兼容 /chat/completions) ---
 #define AI_API_URL    "https://uuapi.io/v1/chat/completions"

@@ -54,7 +54,7 @@ static void send_hello(void) {
 }
 
 void demo_ai_enter(void) {
-    s_scr = ui_pixel_screen_create("AI");
+    s_scr = ui_pixel_screen_create("AI 助手");
     lv_obj_set_style_bg_color(s_scr, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(s_scr, LV_OPA_COVER, 0);
 
