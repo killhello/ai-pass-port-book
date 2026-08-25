@@ -155,7 +155,6 @@ static void show_prov_page(void) {
     s_state = STATE_PROV;
     s_phase = PH_WAIT;
     s_cancel = false;
-    s_submitted = false;
 
     s_prov_scr = ui_pixel_screen_create("WiFi");
     lv_obj_set_style_bg_color(s_prov_scr, lv_color_hex(0x000000), 0);
