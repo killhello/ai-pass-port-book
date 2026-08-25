@@ -33,18 +33,19 @@ jobs:
 
           # SPIFFS 镜像参数必须与 sdkconfig.defaults 一致:
           # OBJ_NAME_LEN=32, META_LENGTH=4, USE_MAGIC, USE_MAGIC_LENGTH
-          python $IDF_PATH/components/spiffs/spiffsgen.py 0x630000 spiffs_data build/spiffs.bin \
+          # 新分区: spiffs @ 0x290000, size 0x570000
+          python $IDF_PATH/components/spiffs/spiffsgen.py 0x570000 spiffs_data build/spiffs.bin \
             --page-size 256 --block-size 4096 \
             --obj-name-len 32 --meta-len 4 \
             --use-magic --use-magic-len
 
-          # 合并为单文件镜像(0x0 起一次性刷入),避免漏刷 bootloader/分区表导致启动循环
+          # 合并为单文件镜像(0x0 起一次性刷入)
           python -m esptool --chip esp32c3 merge_bin -o build/flash_all.bin \
             --flash_mode dio --flash_freq 80m --flash_size 8MB \
             0x0 build/bootloader/bootloader.bin \
             0x8000 build/partition_table/partition-table.bin \
             0x10000 build/FoloToy-AI-Passport.bin \
-            0x1D0000 build/spiffs.bin
+            0x290000 build/spiffs.bin
           ls -lh build/flash_all.bin
 
           echo "=== Build artifacts ==="
