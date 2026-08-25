@@ -6,8 +6,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_smartconfig.h"
-#include "wifi_provisioning/manager.h"
-#include "wifi_provisioning/scheme_ble.h"
+#include "ble_gatt_server.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
@@ -431,43 +430,39 @@ bool wifi_sta_smartconfig_is_running(void) {
     return s_sc_running;
 }
 
-// ===== BLE Provisioning 实现 =====
+// ===== BLE Provisioning 实现（自定义 GATT 服务） =====
 static void bp_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data) {
-    if (base == WIFI_PROV_EVENT) {
-        switch (id) {
-            case WIFI_PROV_START:
-                ESP_LOGI(TAG, "BLE Prov: 启动");
-                if (s_bp_cb) s_bp_cb(BLE_PROV_STATUS_STARTING, s_bp_user_data);
-                break;
-            case WIFI_PROV_CRED_RECV: {
-                ESP_LOGI(TAG, "BLE Prov: 收到凭证");
-                wifi_sta_config_t *wifi_cfg = (wifi_sta_config_t *)data;
-                ESP_LOGI(TAG, "BLE Prov: SSID=%s, Password=%s", wifi_cfg->ssid, wifi_cfg->password);
-                if (s_bp_cb) s_bp_cb(BLE_PROV_STATUS_RECEIVING_CREDS, s_bp_user_data);
-                break;
-            }
-            case WIFI_PROV_CRED_FAIL: {
-                ESP_LOGE(TAG, "BLE Prov: 凭证失败");
-                if (s_bp_cb) s_bp_cb(BLE_PROV_STATUS_FAIL, s_bp_user_data);
-                break;
-            }
-            case WIFI_PROV_CRED_SUCCESS:
-                ESP_LOGI(TAG, "BLE Prov: 凭证验证成功");
-                if (s_bp_cb) s_bp_cb(BLE_PROV_STATUS_CONNECTING_WIFI, s_bp_user_data);
-                break;
-            case WIFI_PROV_END:
-                ESP_LOGI(TAG, "BLE Prov: 结束");
-                wifi_prov_mgr_deinit();
-                xEventGroupSetBits(s_bp_event_group, BIT0);
-                break;
-            default:
-                break;
-        }
-    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
         ESP_LOGI(TAG, "BLE Prov: WiFi 已连接");
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ESP_LOGI(TAG, "BLE Prov: 获取到 IP");
         xEventGroupSetBits(s_bp_event_group, BIT0);
+    }
+}
+
+// BLE GATT 回调：收到凭证
+static void on_ble_gatt_event(ble_gatt_server_evt_t evt, void *user) {
+    if (evt == BLE_GATT_EVT_CREDENTIALS_READY) {
+        char ssid[33] = {0}, pass[65] = {0};
+        ble_gatt_server_get_credentials(ssid, sizeof(ssid), pass, sizeof(pass));
+        ESP_LOGI(TAG, "BLE Prov: 收到凭证 SSID=%s", ssid);
+
+        if (s_bp_cb) s_bp_cb(BLE_PROV_STATUS_RECEIVING_CREDS, s_bp_user_data);
+
+        // 保存凭证并连接
+        save_creds(ssid, pass);
+        if (s_bp_cb) s_bp_cb(BLE_PROV_STATUS_CONNECTING_WIFI, s_bp_user_data);
+
+        // 断开 BLE 广播后连接 WiFi
+        ble_gatt_server_deinit();
+        esp_err_t err = wifi_sta_connect(ssid, pass[0] ? pass : NULL);
+        if (err == ESP_OK) {
+            if (s_bp_cb) s_bp_cb(BLE_PROV_STATUS_SUCCESS, s_bp_user_data);
+            xEventGroupSetBits(s_bp_event_group, BIT0);
+        } else {
+            ESP_LOGE(TAG, "BLE Prov: WiFi 连接失败: %s", esp_err_to_name(err));
+            if (s_bp_cb) s_bp_cb(BLE_PROV_STATUS_FAIL, s_bp_user_data);
+        }
     }
 }
 
@@ -476,15 +471,13 @@ static void ble_prov_task(void *param) {
     EventBits_t bits = xEventGroupWaitBits(s_bp_event_group, BIT0, pdTRUE, pdFALSE, pdMS_TO_TICKS(s_bp_timeout_ms));
     
     if (bits & BIT0) {
-        ESP_LOGI(TAG, "BLE Prov 成功，已获取 IP");
-        if (s_bp_cb) s_bp_cb(BLE_PROV_STATUS_SUCCESS, s_bp_user_data);
+        ESP_LOGI(TAG, "BLE Prov 成功");
     } else {
         ESP_LOGE(TAG, "BLE Prov 超时或失败");
-        wifi_prov_mgr_stop_provisioning();
+        ble_gatt_server_deinit();
         if (s_bp_cb) s_bp_cb(BLE_PROV_STATUS_FAIL, s_bp_user_data);
     }
     
-    esp_event_handler_unregister(WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, bp_event_handler);
     esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, bp_event_handler);
     esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, bp_event_handler);
     vEventGroupDelete(s_bp_event_group);
@@ -493,7 +486,7 @@ static void ble_prov_task(void *param) {
     vTaskDelete(NULL);
 }
 
-// 启动 BLE Provisioning（阻塞直到成功/失败/超时）
+// 启动 BLE Provisioning
 esp_err_t wifi_sta_ble_prov_start(ble_prov_cb_t cb, void *user, int timeout_ms) {
     if (s_bp_running) return ESP_ERR_INVALID_STATE;
     if (wifi_sta_init() != ESP_OK) return ESP_ERR_NO_MEM;
@@ -512,76 +505,51 @@ esp_err_t wifi_sta_ble_prov_start(ble_prov_cb_t cb, void *user, int timeout_ms) 
     if (!s_bp_event_group) return ESP_ERR_NO_MEM;
 
     // 注册事件处理
-    esp_err_t err = esp_event_handler_register(WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, bp_event_handler, NULL);
+    esp_err_t err = esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, bp_event_handler, NULL);
     if (err != ESP_OK) {
-        vEventGroupDelete(s_bp_event_group);
-        return err;
-    }
-    err = esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, bp_event_handler, NULL);
-    if (err != ESP_OK) {
-        esp_event_handler_unregister(WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, bp_event_handler);
         vEventGroupDelete(s_bp_event_group);
         return err;
     }
     err = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, bp_event_handler, NULL);
     if (err != ESP_OK) {
-        esp_event_handler_unregister(WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, bp_event_handler);
+        esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, bp_event_handler);
         vEventGroupDelete(s_bp_event_group);
         return err;
     }
 
-    // 配置 Provisioning Manager
-    wifi_prov_mgr_config_t prov_config = {
-        .scheme = wifi_prov_scheme_ble,
-        .scheme_event_handler = WIFI_PROV_SCHEME_BLE_EVENT_HANDLER_FREE_BTDM
-    };
-    
-    err = wifi_prov_mgr_init(prov_config);
-    if (err != ESP_OK) {
-        esp_event_handler_unregister(WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, bp_event_handler);
-        vEventGroupDelete(s_bp_event_group);
-        return err;
-    }
+    // 重置 GATT 服务器
+    ble_gatt_server_reset();
 
-    // 设置设备名称和服务 UUID
-    wifi_prov_scheme_ble_set_service_uuid((uint8_t *)"00001800-0000-1000-8000-00805F9B34FB");
-    
-    // 启动 Provisioning（设备名为 "ESP32-Prov-XXXX"）
-    char service_name[32];
-    uint8_t mac[6];
-    esp_wifi_get_mac(WIFI_IF_STA, mac);
-    snprintf(service_name, sizeof(service_name), "ESP32-Prov-%02X%02X%02X", mac[3], mac[4], mac[5]);
-    
-    wifi_prov_security_t security = WIFI_PROV_SECURITY_1;
-    const char *pop = "12345678";  // Proof of possession (可选)
-    
-    err = wifi_prov_mgr_start_provisioning(security, pop, service_name, NULL);
+    // 启动自定义 GATT 服务
+    err = ble_gatt_server_init(on_ble_gatt_event, NULL);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "BLE Prov 启动失败: %s", esp_err_to_name(err));
-        wifi_prov_mgr_deinit();
-        esp_event_handler_unregister(WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, bp_event_handler);
+        ESP_LOGE(TAG, "BLE GATT 启动失败: %s", esp_err_to_name(err));
+        esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, bp_event_handler);
+        esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, bp_event_handler);
         vEventGroupDelete(s_bp_event_group);
         return err;
     }
 
     s_bp_running = true;
+    if (s_bp_cb) s_bp_cb(BLE_PROV_STATUS_STARTING, s_bp_user_data);
+
     BaseType_t ret = xTaskCreate(ble_prov_task, "bp_task", 4096, NULL, 5, NULL);
     if (ret != pdPASS) {
-        wifi_prov_mgr_stop_provisioning();
-        wifi_prov_mgr_deinit();
-        esp_event_handler_unregister(WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, bp_event_handler);
+        ble_gatt_server_deinit();
+        esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, bp_event_handler);
+        esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, bp_event_handler);
         vEventGroupDelete(s_bp_event_group);
         s_bp_running = false;
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(TAG, "BLE Provisioning 启动，设备名: %s", service_name);
+    ESP_LOGI(TAG, "BLE Provisioning 启动，等待 Web Bluetooth 连接...");
     return ESP_OK;
 }
 
 void wifi_sta_ble_prov_stop(void) {
     if (!s_bp_running) return;
-    wifi_prov_mgr_stop_provisioning();
+    ble_gatt_server_deinit();
     // 事件清理在 ble_prov_task 中完成
 }
 

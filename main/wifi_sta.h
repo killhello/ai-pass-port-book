@@ -79,26 +79,6 @@ esp_err_t wifi_sta_smartconfig_start(smartconfig_cb_t cb, void *user, int timeou
 // 停止 SmartConfig
 void wifi_sta_smartconfig_stop(void);
 
-// ===== SmartConfig (ESP-Touch) =====
-typedef enum {
-    SC_STATUS_IDLE,
-    SC_STATUS_FIND_CHANNEL,
-    SC_STATUS_GETTING_SSID_PSWD,
-    SC_STATUS_LINK,
-    SC_STATUS_LINK_OVER,
-    SC_STATUS_FAIL,
-} smartconfig_status_t;
-
-// SmartConfig 回调签名
-typedef void (*smartconfig_cb_t)(smartconfig_status_t status, void *user);
-
-// 启动 SmartConfig（ESP-Touch 模式，阻塞直到成功/失败/超时）
-// 成功时自动保存凭证到 NVS 并连接
-esp_err_t wifi_sta_smartconfig_start(smartconfig_cb_t cb, void *user, int timeout_ms);
-
-// 停止 SmartConfig
-void wifi_sta_smartconfig_stop(void);
-
 // 是否正在进行 SmartConfig
 bool wifi_sta_smartconfig_is_running(void);
 
