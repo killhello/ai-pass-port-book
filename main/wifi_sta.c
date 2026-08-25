@@ -135,10 +135,14 @@ esp_err_t wifi_sta_init(void) {
 int wifi_sta_scan(wifi_ap_info_t *out, int max_count) {
     if (wifi_sta_init() != ESP_OK) return 0;
 
+    // 使用主动扫描，设置合理的信道停留时间
     wifi_scan_config_t cfg = { 0 };
     cfg.show_hidden = false;
+    cfg.scan_type = WIFI_SCAN_TYPE_ACTIVE;
+    cfg.scan_time.active.min = 120;  // 每信道最短 120ms
+    cfg.scan_time.active.max = 180;  // 每信道最长 180ms
 
-    ESP_LOGI(TAG, "开始扫描...");
+    ESP_LOGI(TAG, "开始主动扫描...");
     esp_err_t err = esp_wifi_scan_start(&cfg, true);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "扫描启动失败: %s", esp_err_to_name(err));
