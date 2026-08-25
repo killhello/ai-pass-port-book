@@ -1,4 +1,4 @@
-// main/ble_gatt_server.h —— 自定义 BLE GATT 服务，用于 Web Bluetooth 配网
+// main/ble_gatt_server.h —— 自定义 BLE GATT 服务（Bluedroid），用于 Web Bluetooth 配网
 #pragma once
 
 #include "esp_err.h"
