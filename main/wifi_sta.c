@@ -12,6 +12,17 @@
 #include "freertos/semphr.h"
 #include <string.h>
 
+// strlcpy 兼容层（ESP-IDF 无 strlcpy）
+static inline size_t strlcpy_local(char *dst, const char *src, size_t dstsize) {
+    if (dstsize == 0) return strlen(src);
+    size_t n = strlen(src);
+    if (n >= dstsize) n = dstsize - 1;
+    memcpy(dst, src, n);
+    dst[n] = '\0';
+    return strlen(src);
+}
+#define strlcpy(dst, src, dstsize) strlcpy_local(dst, src, dstsize)
+
 static const char *TAG = "wifi_sta";
 static const char *NVS_NS = "wifi_sta";
 
@@ -59,7 +70,8 @@ static bool load_creds(char *ssid, size_t ssid_sz, char *pass, size_t pass_sz) {
         size_t sz = ssid_sz;
         if (nvs_get_str(h, "ssid", ssid, &sz) == ESP_OK) {
             sz = pass_sz;
-            if (nvs_get_str(h, "pass", pass, &sz) == ESP_OK || nvs_get_err(h) == ESP_ERR_NVS_NOT_FOUND) {
+            esp_err_t err = nvs_get_str(h, "pass", pass, &sz);
+            if (err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND) {
                 ok = true;
             }
         }
