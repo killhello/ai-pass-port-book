@@ -1,41 +1,57 @@
-// main/wifi_sta.h —— WiFi STA 模块:扫描(所有网络) + 动态连接(支持密码)。
+// main/wifi_sta.h —— WiFi STA 模块：扫描 + 连接 + NVS 存储 + 事件回调
+// 参考 esp32-wifi-manager 的稳健模式：事件驱动 + NVS 互斥 + AP 回退
 #pragma once
 
 #include "esp_err.h"
 #include "esp_wifi_types.h"
+#include "esp_netif.h"
 #include <stdbool.h>
 
-// WiFi 扫描结果(所有网络)
+// WiFi 扫描结果
 #define WIFI_SCAN_MAX  20
 
 typedef struct {
     char             ssid[33];
     int8_t           rssi;
     wifi_auth_mode_t authmode;
+    uint8_t          primary;   // 信道
 } wifi_ap_info_t;
 
-// 同步扫描并返回结果。阻塞直到扫描完成或超时。
-// 返回实际找到的网络数(0=失败/无网络)
-int wifi_sta_scan_and_get(wifi_ap_info_t *out, int max_count, int timeout_ms);
+// 事件类型
+typedef enum {
+    WIFI_STA_EVT_CONNECTED,     // 已连接并获取 IP
+    WIFI_STA_EVT_DISCONNECTED,  // 断开连接
+    WIFI_STA_EVT_SCAN_DONE,     // 扫描完成
+    WIFI_STA_EVT_FAIL,          // 连接失败
+} wifi_sta_evt_t;
 
-// 启动异步扫描(内部已改为同步就绪)。
-// 返回: true=WiFi 就绪可扫描, false=启动失败
-bool wifi_sta_start_scan(void);
+// 事件回调签名
+typedef void (*wifi_sta_cb_t)(wifi_sta_evt_t evt, void *data, void *user);
 
-// 等待扫描完成(阻塞,最长 timeout_ms)。调用前需先 start_scan。
-// 结果写入 out 数组,返回实际数量。0=无结果。
-int wifi_sta_get_scan_results(wifi_ap_info_t *out, int max_count, int timeout_ms);
+// 启动扫描（同步阻塞，返回 AP 数量）
+int wifi_sta_scan(wifi_ap_info_t *out, int max_count);
 
-// 连接到指定 SSID(支持密码)。阻塞直至拿到 IP 或超时。
-// password 为 NULL 或空串 = 开放网络。
-// 重复调用:已连接同一 SSID 直接返回 OK。
-esp_err_t wifi_sta_connect_to(const char *ssid, const char *password);
+// 连接指定 SSID（支持密码，阻塞直到拿到 IP 或超时）
+// password 为 NULL/空 = 开放网络
+esp_err_t wifi_sta_connect(const char *ssid, const char *password);
 
-// 连接到 ai_config 中配置的 SSN(兼容旧逻辑,从 NVS 或默认读取)。
-esp_err_t wifi_sta_connect(void);
+// 断开当前连接
+esp_err_t wifi_sta_disconnect(void);
 
-// 当前是否已拿到 IP。
+// 是否已连接并有 IP
 bool wifi_sta_is_connected(void);
 
-// 获取当前连接的 SSID(空串=未连接)。
+// 获取当前连接的 SSID
 const char *wifi_sta_current_ssid(void);
+
+// 注册事件回调（可在任意时刻调用，线程安全）
+void wifi_sta_register_cb(wifi_sta_cb_t cb, void *user);
+
+// 注销回调
+void wifi_sta_unregister_cb(wifi_sta_cb_t cb);
+
+// 初始化 WiFi 栈（内部幂等，首次调用时创建 netif/event/task）
+esp_err_t wifi_sta_init(void);
+
+// 启动 AP 回退模式（供配网用，可选）
+esp_err_t wifi_sta_start_ap_fallback(const char *ap_ssid, const char *ap_pass);

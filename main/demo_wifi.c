@@ -88,13 +88,7 @@ static void do_scan(void) {
     lv_label_set_text(s_hint, "");
     lv_refr_now(NULL);
 
-    if (!wifi_sta_start_scan()) {
-        lv_label_set_text(s_status, "扫描启动失败");
-        lv_label_set_text(s_hint, "短按 OK 重试  长按 OK 返回");
-        return;
-    }
-
-    s_ap_count = wifi_sta_get_scan_results(s_aps, MAX_AP, 8000);
+    s_ap_count = wifi_sta_scan(s_aps, MAX_AP);
 
     if (s_ap_count == 0) {
         lv_label_set_text(s_status, "未发现 WiFi 网络");
@@ -242,7 +236,7 @@ static void enter_connecting(const char *ssid, const char *pwd) {
     lv_label_set_text(s_hint, "");
     lv_refr_now(NULL);
 
-    esp_err_t err = wifi_sta_connect_to(ssid, pwd);
+    esp_err_t err = wifi_sta_connect(ssid, pwd);
     if (err == ESP_OK) {
         on_connected();
     } else {
@@ -275,7 +269,7 @@ static void list_handle_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
                 lv_label_set_text(s_hint, "");
                 lv_refr_now(NULL);
 
-                esp_err_t err = wifi_sta_connect_to(s_aps[s_sel].ssid, NULL);
+                esp_err_t err = wifi_sta_connect(s_aps[s_sel].ssid, NULL);
                 if (err == ESP_OK) on_connected(); else on_connect_fail();
             } else {
                 // 加密网络 -> 进键盘
