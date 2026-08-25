@@ -8,6 +8,9 @@
 #include "esp_http_server.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "lwip/sockets.h"
+#include "lwip/netdb.h"
+#include "lwip/err.h"
 #include <string.h>
 
 static const char *TAG = "captive";
@@ -278,7 +281,7 @@ esp_err_t captive_portal_start(captive_portal_cb_t cb, void *user) {
     // 确保 WiFi 初始化
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_err_t err = esp_wifi_init(&cfg);
-    if (err != ESP_OK && err != ESP_ERR_WIFI_ALREADY_STARTED) {
+    if (err != ESP_OK) {
         ESP_LOGE(TAG, "WiFi init 失败: %s", esp_err_to_name(err));
         return err;
     }
