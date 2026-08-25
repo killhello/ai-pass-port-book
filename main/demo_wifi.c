@@ -30,11 +30,12 @@ static const char *KEYS[] = {
 #define KEY_CONFIRM_IDX 35
 
 typedef enum {
-    STATE_MENU,         // 主菜单：扫描列表 / SmartConfig
+    STATE_MENU,         // 主菜单：扫描列表 / SmartConfig / BLE Prov
     STATE_LIST,         // 扫描列表
     STATE_KEYBOARD,     // 密码输入
     STATE_CONNECTING,   // 连接中
     STATE_SMARTCONFIG,  // SmartConfig 进行中
+    STATE_BLE_PROV,     // BLE Provisioning 进行中
 } wifi_state_t;
 
 static lv_obj_t *s_scr;
@@ -57,6 +58,11 @@ static int s_pwd_len;
 static lv_obj_t *s_sc_scr;
 static lv_obj_t *s_sc_status;
 static lv_obj_t *s_sc_hint;
+
+// BLE Provisioning 进度
+static lv_obj_t *s_bp_scr;
+static lv_obj_t *s_bp_status;
+static lv_obj_t *s_bp_hint;
 
 static wifi_ap_info_t s_aps[MAX_AP];
 static int s_ap_count;
@@ -202,7 +208,74 @@ static void sc_callback(smartconfig_status_t status, void *user) {
     }
 }
 
-// ===== 键盘 UI =====
+// ===== BLE Provisioning 回调 =====
+static void bp_callback(ble_prov_status_t status, void *user) {
+    (void)user;
+    switch (status) {
+        case BLE_PROV_STATUS_STARTING:
+            bp_update_status("正在启动 BLE Provisioning...");
+            break;
+        case BLE_PROV_STATUS_WAITING_CLIENT:
+            bp_update_status("等待手机连接...\n请打开 ESP Provision App");
+            break;
+        case BLE_PROV_STATUS_RECEIVING_CREDS:
+            bp_update_status("正在接收 WiFi 凭证...");
+            break;
+        case BLE_PROV_STATUS_CONNECTING_WIFI:
+            bp_update_status("正在连接 WiFi...");
+            break;
+        case BLE_PROV_STATUS_SUCCESS:
+            bp_update_status("配网成功!\n已自动连接");
+            break;
+        case BLE_PROV_STATUS_FAIL:
+            bp_update_status("配网失败/超时\n长按 OK 返回");
+            break;
+        default:
+            break;
+    }
+}
+
+// ===== BLE Provisioning UI =====
+static void bp_create_ui(void) {
+    s_bp_scr = ui_pixel_screen_create("WiFi");
+    lv_obj_set_style_bg_color(s_bp_scr, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_bp_scr, LV_OPA_COVER, 0);
+
+    lv_obj_t *title = lv_label_create(s_bp_scr);
+    lv_obj_set_style_text_font(title, &notosanssc_16, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_label_set_text(title, "BLE Provisioning");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
+
+    s_bp_status = lv_label_create(s_bp_scr);
+    lv_obj_set_style_text_font(s_bp_status, &notosanssc_16, 0);
+    lv_obj_set_style_text_color(s_bp_status, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_width(s_bp_status, 220);
+    lv_label_set_long_mode(s_bp_status, LV_LABEL_LONG_WRAP);
+    lv_obj_align(s_bp_status, LV_ALIGN_CENTER, 0, -20);
+    lv_label_set_text(s_bp_status, "正在启动 BLE Provisioning...\n请打开 ESP Provision App");
+
+    s_bp_hint = lv_label_create(s_bp_scr);
+    lv_obj_set_style_text_font(s_bp_hint, &notosanssc_16, 0);
+    lv_obj_set_style_text_color(s_bp_hint, lv_color_hex(0x888888), 0);
+    lv_label_set_text(s_bp_hint, "长按 OK 取消");
+    lv_obj_align(s_bp_hint, LV_ALIGN_BOTTOM_MID, 0, -8);
+
+    lv_screen_load(s_bp_scr);
+}
+
+static void bp_update_status(const char *msg) {
+    if (s_bp_status) lv_label_set_text(s_bp_status, msg);
+}
+
+static void bp_destroy_ui(void) {
+    if (s_bp_scr) {
+        lv_obj_delete(s_bp_scr);
+        s_bp_scr = NULL;
+        s_bp_status = NULL;
+        s_bp_hint = NULL;
+    }
+}
 static void kbd_create(void) {
     s_kbd_scr = ui_pixel_screen_create("WiFi");
     lv_obj_set_style_bg_color(s_kbd_scr, lv_color_hex(0x000000), 0);
@@ -316,6 +389,15 @@ static void enter_smartconfig(void) {
     }
 }
 
+static void enter_ble_prov(void) {
+    s_state = STATE_BLE_PROV;
+    bp_create_ui();
+    esp_err_t err = wifi_sta_ble_prov_start(bp_callback, NULL, 60000);
+    if (err != ESP_OK) {
+        bp_update_status("启动失败\n长按 OK 返回");
+    }
+}
+
 static void enter_connecting(const char *ssid, const char *pwd) {
     s_state = STATE_CONNECTING;
     kbd_destroy();
@@ -368,19 +450,22 @@ static void menu_handle_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
     if (ev != BSP_BTN_CLICK) return;
 
     if (btn == BSP_BTN_UP) {
-        s_menu_sel = 0;
+        s_menu_sel = (s_menu_sel + 2) % 3;  // 0,1,2 循环
         update_menu_sel();
     } else if (btn == BSP_BTN_DOWN) {
-        s_menu_sel = 1;
+        s_menu_sel = (s_menu_sel + 1) % 3;
         update_menu_sel();
     } else if (btn == BSP_BTN_OK) {
         if (s_menu_sel == 0) {
             // 扫描列表
             s_state = STATE_LIST;
             do_scan();
-        } else {
+        } else if (s_menu_sel == 1) {
             // SmartConfig
             enter_smartconfig();
+        } else {
+            // BLE Provisioning
+            enter_ble_prov();
         }
     }
 }
@@ -389,6 +474,16 @@ static void sc_handle_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
     if (btn == BSP_BTN_OK && ev == BSP_BTN_LONG) {
         wifi_sta_smartconfig_stop();
         sc_destroy_ui();
+        s_state = STATE_MENU;
+        // 回到主菜单
+        demo_wifi_enter();
+    }
+}
+
+static void bp_handle_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
+    if (btn == BSP_BTN_OK && ev == BSP_BTN_LONG) {
+        wifi_sta_ble_prov_stop();
+        bp_destroy_ui();
         s_state = STATE_MENU;
         // 回到主菜单
         demo_wifi_enter();
@@ -481,12 +576,14 @@ void demo_wifi_enter(void) {
     // 初始化菜单项
     lv_label_set_text(s_items[0], "📡 扫描列表连接");
     lv_label_set_text(s_items[1], "📱 SmartConfig (ESP-Touch)");
+    lv_label_set_text(s_items[2], "📶 BLE Provisioning");
     lv_obj_clear_flag(s_items[0], LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(s_items[1], LV_OBJ_FLAG_HIDDEN);
-    for (int i = 2; i < MAX_AP; i++) {
+    lv_obj_clear_flag(s_items[2], LV_OBJ_FLAG_HIDDEN);
+    for (int i = 3; i < MAX_AP; i++) {
         lv_obj_add_flag(s_items[i], LV_OBJ_FLAG_HIDDEN);
     }
-    s_ap_count = 2;  // 菜单模式下只显示 2 项
+    s_ap_count = 3;  // 菜单模式下显示 3 项
     update_menu_sel();
     lv_label_set_text(s_status, "请选择配网方式");
     lv_label_set_text(s_hint, "上下选择  OK 确认");
@@ -503,8 +600,12 @@ void demo_wifi_exit(void) {
     }
     kbd_destroy();
     sc_destroy_ui();
+    bp_destroy_ui();
     if (wifi_sta_smartconfig_is_running()) {
         wifi_sta_smartconfig_stop();
+    }
+    if (wifi_sta_ble_prov_is_running()) {
+        wifi_sta_ble_prov_stop();
     }
     s_state = STATE_MENU;
 }
@@ -516,6 +617,8 @@ void demo_wifi_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
         kbd_handle_key(btn, ev);
     } else if (s_state == STATE_SMARTCONFIG) {
         sc_handle_key(btn, ev);
+    } else if (s_state == STATE_BLE_PROV) {
+        bp_handle_key(btn, ev);
     } else if (s_state == STATE_MENU) {
         menu_handle_key(btn, ev);
     } else {
