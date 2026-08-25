@@ -10,6 +10,18 @@
 #include <stdio.h>
 #include <string.h>
 
+// strlcpy 兼容层(ESP-IDF 无 strlcpy)
+static inline size_t strlcpy_local(char *dst, const char *src, size_t dstsize) {
+    if (dstsize == 0) return strlen(src);
+    size_t n = strlen(src);
+    if (n >= dstsize) n = dstsize - 1;
+    memcpy(dst, src, n);
+    dst[n] = '\0';
+    return strlen(src);
+}
+
+#define strlcpy(dst, src, dstsize) strlcpy_local(dst, src, dstsize)
+
 static const char *TAG = "demo_wifi";
 (void)TAG;  // 仅为消除 unused 变量警告
 
