@@ -8,6 +8,7 @@
 #include "lvgl.h"
 #include "ai_chat.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -115,7 +116,10 @@ static void cell_action(void) {
 }
 
 void demo_ai_enter(void) {
+    ESP_LOGI(TAG, "enter 开始, 空闲堆 %lu KB",
+             (unsigned long)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024));
     s_scr = ui_pixel_screen_create("AI 助手");
+    ESP_LOGI(TAG, "screen ok");
 
     // 已输入文本(上)
     lv_obj_t *in_panel = ui_pixel_panel_create(s_scr, 10, 48, 220, 64, UI_PAPER);
