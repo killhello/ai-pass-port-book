@@ -19,6 +19,7 @@
 #include "nvs_flash.h"
 #include "esp_spiffs.h"
 #include "boot_animation.h"
+#include "wifi_sta.h"
 
 static const char *TAG = "main";
 
