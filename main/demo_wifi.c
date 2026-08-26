@@ -10,6 +10,7 @@
 #include "ble_prov.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
+#include "esp_http_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
@@ -25,7 +26,8 @@ typedef enum {
 typedef enum {
     PH_WAIT = 0,       // BLE 广播中, 等手机提交配置
     PH_CONNECTING,     // 收到凭证, 正在连 WiFi
-    PH_OK,             // 连接成功
+    PH_OK,             // 连接成功且联网验证通过(百度可达)
+    PH_NO_NET,         // 连上 WiFi 但无法上网
     PH_FAIL,           // 失败/取消结束
 } prov_phase_t;
 
@@ -44,6 +46,25 @@ static volatile bool s_task_alive = false;
 static lv_timer_t *s_poll;
 
 static void show_info_page(void);
+
+// 联网验证: HTTP GET 百度首页, 拿到 HTML 响应才算真正配网成功
+static bool net_check_baidu(void) {
+    esp_http_client_config_t cfg = {
+        .url = "http://www.baidu.com/",
+        .timeout_ms = 10000,
+        .buffer_size = 1024,
+    };
+    esp_http_client_handle_t cli = esp_http_client_init(&cfg);
+    if (!cli) return false;
+    esp_err_t err = esp_http_client_perform(cli);   // 收 HTML 到内部缓冲后丢弃
+    int status = esp_http_client_get_status_code(cli);
+    int64_t len = esp_http_client_fetch_headers(cli);
+    esp_http_client_cleanup(cli);
+    ESP_LOGI(TAG, "联网验证: %s status=%d len=%lld",
+             esp_err_to_name(err), status, (long long)len);
+    // 200 且有响应体 => 拿到了百度 HTML, 真正能上网
+    return (err == ESP_OK && status == 200);
+}
 
 // ---- 后台任务: 停 WiFi → BLE 收凭证 → 重连 WiFi ----
 static void prov_task(void *arg) {
@@ -84,7 +105,17 @@ static void prov_task(void *arg) {
     vTaskDelay(pdMS_TO_TICKS(100));     // 给 UI 一拍刷新"正在连接"
 
     esp_err_t rc = wifi_sta_connect(ssid, pass[0] ? pass : NULL);
-    s_phase = (rc == ESP_OK) ? PH_OK : PH_FAIL;
+    if (rc == ESP_OK) {
+        // WiFi 连上不代表能上网, 请求百度验证
+        s_phase = PH_CONNECTING;
+        if (net_check_baidu()) {
+            s_phase = PH_OK;            // 配网成功: 百度 HTML 已返回
+        } else {
+            s_phase = PH_NO_NET;        // 连上 WiFi 但无互联网
+        }
+    } else {
+        s_phase = PH_FAIL;
+    }
     ESP_LOGI(TAG, "连接结果: %s", esp_err_to_name(rc));
     s_task_alive = false;
     vTaskDelete(NULL);
@@ -105,7 +136,13 @@ static void poll_cb(lv_timer_t *t) {
         s_poll = NULL;
         lv_timer_del(t);
         lv_label_set_text(s_prov_hint, "长按 OK 返回");
-        lv_label_set_text(s_prov_status, "连接成功!");
+        lv_label_set_text(s_prov_status, "配网成功!\n联网验证通过(百度可达)");
+        break;
+    case PH_NO_NET:
+        s_poll = NULL;
+        lv_timer_del(t);
+        lv_label_set_text(s_prov_hint, "长按 OK 返回");
+        lv_label_set_text(s_prov_status, "已连上 WiFi\n但无法上网, 请检查路由器");
         break;
     case PH_FAIL:
         s_poll = NULL;
