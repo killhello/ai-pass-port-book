@@ -1,91 +1,98 @@
-// main/demo_about.c —— 关于页：开源声明
+// main/demo_about.c —— 关于页:开源软件声明,复用电子书阅读器打开 /spiffs/about.txt
+// 按键:UP=上一页, DOWN=下一页, 长按 OK 由 main 返回菜单
 #include "demo.h"
 #include "font_cn_16.h"
 #include "bsp_display.h"
 #include "ui_pixel.h"
+#include "ebook_reader.h"
 #include "lvgl.h"
 #include "esp_log.h"
+#include <stdio.h>
+#include <string.h>
 
-static const char *TAG __attribute__((unused)) = "demo_about";
+static const char *TAG = "demo_about";
+
+#define ABOUT_PATH  "/spiffs/about.txt"
 
 static lv_obj_t *s_scr;
+static lv_obj_t *s_text;      // 正文
+static lv_obj_t *s_page_info; // 页码
+
+static ebook_reader_t s_reader;
+
+static void show_page(void) {
+    if (!s_reader.is_open) {
+        lv_label_set_text(s_text, "未找到 about.txt\n\n请确认固件包完整");
+        lv_label_set_text(s_page_info, "-- / --");
+        return;
+    }
+    lv_label_set_text(s_text, s_reader.page_buf);
+    char info[32];
+    snprintf(info, sizeof(info), "%lu / %lu",
+             (unsigned long)(s_reader.current_page + 1),
+             (unsigned long)s_reader.total_pages);
+    lv_label_set_text(s_page_info, info);
+}
 
 void demo_about_enter(void) {
     s_scr = ui_pixel_screen_create("关于");
-    lv_obj_set_style_bg_color(s_scr, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_bg_opa(s_scr, LV_OPA_COVER, 0);
 
+    // 标题
     lv_obj_t *title = lv_label_create(s_scr);
     lv_obj_set_style_text_font(title, &notosanssc_16, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_label_set_text(title, "开源声明");
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 4);
+    lv_obj_set_style_text_color(title, lv_color_hex(UI_INK), 0);
+    lv_label_set_text(title, "开源软件声明");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
-    lv_obj_t *scroll = lv_obj_create(s_scr);
-    lv_obj_set_size(scroll, 230, 260);
-    lv_obj_align(scroll, LV_ALIGN_TOP_MID, 0, 24);
-    lv_obj_set_style_bg_color(scroll, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_bg_opa(scroll, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(scroll, 0, 0);
-    lv_obj_set_style_pad_all(scroll, 0, 0);
-    lv_obj_set_scroll_dir(scroll, LV_DIR_VER);
-    lv_obj_set_scroll_snap_y(scroll, LV_SCROLL_SNAP_START);
+    // 正文面板(与电子书页一致)
+    lv_obj_t *panel = ui_pixel_panel_create(s_scr, 10, 40, 220, 248, UI_PAPER);
+    s_text = lv_label_create(panel);
+    lv_obj_set_style_text_font(s_text, &notosanssc_16, 0);
+    lv_obj_set_style_text_color(s_text, lv_color_hex(UI_INK), 0);
+    lv_obj_set_size(s_text, 204, 232);
+    lv_obj_align(s_text, LV_ALIGN_TOP_LEFT, 8, 8);
+    lv_label_set_long_mode(s_text, LV_LABEL_LONG_WRAP);
 
-    lv_obj_t *txt = lv_label_create(scroll);
-    lv_obj_set_style_text_font(txt, &notosanssc_16, 0);
-    lv_obj_set_style_text_color(txt, lv_color_hex(0xBBBBBB), 0);
-    lv_obj_set_width(txt, 220);
-    lv_label_set_long_mode(txt, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_pad_all(txt, 5, 0);
-    lv_label_set_text(txt,
-        "开源软件声明\n\n"
-        "本产品中的开源软件许可由各自的\n"
-        "权利持有人授予。本声明代表制造商\n"
-        "及其可能向您提供产品的当地子公司\n"
-        "提供。\n\n"
-        "--- 免责声明 ---\n\n"
-        "本产品中的开源软件按\"现状\"分发,\n"
-        "不附带任何明示或暗示的保证。\n\n"
-        "--- 软件列表 ---\n\n"
-        "1. ai-passport\n"
-        "   版权所有 (c) 2026 BingYan\n"
-        "   许可证: MIT\n\n"
-        "2. ESP-IDF v5.5.3\n"
-        "   版权所有 (c) Espressif Systems\n"
-        "   许可证: Apache-2.0\n\n"
-        "3. LVGL v9.5.0\n"
-        "   版权所有 (c) 2022 LVGL LLC\n"
-        "   许可证: MIT\n\n"
-        "4. esp_lvgl_port\n"
-        "   版权所有 (c) Espressif Systems\n"
-        "   许可证: Apache-2.0\n\n"
-        "5. esp_codec_dev\n"
-        "   版权所有 (c) Espressif Systems\n"
-        "   许可证: Apache-2.0\n\n"
-        "6. esp_button\n"
-        "   版权所有 (c) Espressif Systems\n"
-        "   许可证: Apache-2.0\n\n"
-        "--- 源码获取 ---\n\n"
-        "如果您通过邮件发送书面请求,\n"
-        "我们将提供完整的开源源代码。\n"
-        "邮箱: by@bingyan.xyz\n\n"
-        "本要约自分发产品或固件之日起\n"
-        "三年内有效。"
-    );
-
-    lv_obj_t *hint = lv_label_create(s_scr);
-    lv_obj_set_style_text_font(hint, &notosanssc_16, 0);
-    lv_obj_set_style_text_color(hint, lv_color_hex(0x888888), 0);
-    lv_label_set_text(hint, "上下滚动 长按OK返回");
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -4);
+    // 底部页码
+    s_page_info = lv_label_create(s_scr);
+    lv_obj_set_style_text_font(s_page_info, &notosanssc_16, 0);
+    lv_obj_set_style_text_color(s_page_info, lv_color_hex(UI_SKY_DARK), 0);
+    lv_obj_align(s_page_info, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_label_set_text(s_page_info, "-- / --");
 
     lv_screen_load(s_scr);
+
+    ebook_reader_init(&s_reader);
+    if (ebook_reader_open(&s_reader, ABOUT_PATH)) {
+        ebook_reader_read_page(&s_reader);
+        ESP_LOGI(TAG, "已打开 %s", ABOUT_PATH);
+    } else {
+        ESP_LOGE(TAG, "打开 %s 失败", ABOUT_PATH);
+    }
+    show_page();
 }
 
 void demo_about_exit(void) {
-    if (s_scr) { lv_obj_delete(s_scr); s_scr = NULL; }
+    if (s_reader.is_open) ebook_reader_close(&s_reader);   // 不保存进度
+    if (s_scr) {
+        lv_obj_delete(s_scr);
+        s_scr = NULL;
+        s_text = NULL;
+        s_page_info = NULL;
+    }
 }
 
 void demo_about_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
-    (void)btn; (void)ev;
+    if (ev != BSP_BTN_CLICK) return;
+
+    switch (btn) {
+    case BSP_BTN_UP:
+        if (ebook_reader_prev_page(&s_reader)) show_page();
+        break;
+    case BSP_BTN_DOWN:
+        if (ebook_reader_next_page(&s_reader)) show_page();
+        break;
+    default:
+        break;
+    }
 }

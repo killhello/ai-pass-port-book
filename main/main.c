@@ -39,6 +39,7 @@ static bool s_ok[DEMO_COUNT];
 static bool s_spiffs_ok;
 
 static lv_obj_t *s_menu_scr;
+static lv_obj_t *s_menu_body;          // 可滚动容器(8 卡片+吉祥物都在里面)
 static lv_obj_t *s_cards[DEMO_COUNT];
 static lv_obj_t *s_rows[DEMO_COUNT];
 static lv_obj_t *s_mascot;
@@ -59,24 +60,33 @@ static void menu_refresh(void) {
 static void menu_build(void) {
     s_menu_scr = ui_pixel_screen_create("FoloToy");
 
+    // 可滚动容器: 4 行卡片超出屏高, 上/下选择时自动滚到选中项
+    s_menu_body = lv_obj_create(s_menu_scr);
+    lv_obj_remove_style_all(s_menu_body);
+    lv_obj_set_size(s_menu_body, 240, 320 - 42);
+    lv_obj_align(s_menu_body, LV_ALIGN_TOP_MID, 0, 42);
+    lv_obj_set_scroll_dir(s_menu_body, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(s_menu_body, LV_SCROLLBAR_MODE_OFF);
+
     for (size_t i = 0; i < DEMO_COUNT; i++) {
         int x, y, w = 102, h = 72;
         if (i < 6) {
             x = 11 + (int)(i % 2) * 112;
-            y = 46 + (int)(i / 2) * 78;
+            y = (int)(i / 2) * 78;
         } else {
             x = 11;
-            y = 46 + 3 * 78 + (int)(i - 6) * 78;
+            y = 3 * 78 + (int)(i - 6) * 78;
             w = 224;
         }
-        s_cards[i] = ui_pixel_panel_create(s_menu_scr, x, y, w, h, UI_PAPER);
+        s_cards[i] = ui_pixel_panel_create(s_menu_body, x, y, w, h, UI_PAPER);
         s_rows[i] = lv_label_create(s_cards[i]);
         lv_obj_set_style_text_font(s_rows[i], &notosanssc_16, 0);
         lv_obj_set_style_text_align(s_rows[i], LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_center(s_rows[i]);
     }
 
-    s_mascot = ui_pixel_mascot_create(s_menu_scr, 101, 280);
+    // 吉祥物放在最后一行卡片下方, 随内容一起滚动
+    s_mascot = ui_pixel_mascot_create(s_menu_body, 101, 4 * 78 + 14);
 
     menu_refresh();
     lv_screen_load(s_menu_scr);
@@ -99,8 +109,10 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
             DEMOS[s_active].key(btn, ev);
         }
     } else if (ev == BSP_BTN_CLICK) {
-        if (btn == BSP_BTN_UP)   { s_sel = (s_sel + DEMO_COUNT - 1) % DEMO_COUNT; menu_refresh(); }
-        if (btn == BSP_BTN_DOWN) { s_sel = (s_sel + 1) % DEMO_COUNT;              menu_refresh(); }
+        if (btn == BSP_BTN_UP)   { s_sel = (s_sel + DEMO_COUNT - 1) % DEMO_COUNT; menu_refresh();
+                                   lv_obj_scroll_to_view(s_cards[s_sel], LV_ANIM_ON); }
+        if (btn == BSP_BTN_DOWN) { s_sel = (s_sel + 1) % DEMO_COUNT;              menu_refresh();
+                                   lv_obj_scroll_to_view(s_cards[s_sel], LV_ANIM_ON); }
         if (btn == BSP_BTN_OK && s_ok[s_sel]) {
             s_active = s_sel;
             ui_pixel_mascot_jump(s_mascot);

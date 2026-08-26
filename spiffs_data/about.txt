@@ -1,0 +1,45 @@
+开源软件声明
+
+本产品中的开源软件许可由各自的权利持有人授予。本声明代表制造商及其可能向您提供产品的当地子公司提供。
+
+—— 免责声明 ——
+
+本产品中的开源软件按"现状"分发,不附带任何明示或暗示的保证。在法律允许的最大范围内,制造商不对因使用这些软件而产生的任何损失承担责任。
+
+—— 软件列表 ——
+
+1. ai-passport
+   版权所有 (c) 2026 BingYan
+   许可证: MIT
+
+2. ESP-IDF v5.5.3
+   版权所有 (c) Espressif Systems
+   许可证: Apache-2.0
+
+3. LVGL v9.5.0
+   版权所有 (c) 2022 LVGL LLC
+   许可证: MIT
+
+4. esp_lvgl_port
+   版权所有 (c) Espressif Systems
+   许可证: Apache-2.0
+
+5. esp_codec_dev
+   版权所有 (c) Espressif Systems
+   许可证: Apache-2.0
+
+6. esp_button
+   版权所有 (c) Espressif Systems
+   许可证: Apache-2.0
+
+—— 源码获取 ——
+
+如果您通过邮件发送书面请求,我们将提供本产品中上述开源软件的完整源代码。
+
+邮箱: by@bingyan.xyz
+
+本要约自您首次获得本产品或其固件之日起三年内有效。
+
+—— 完 —
+
+上/下 翻页 长按OK 返回菜单
