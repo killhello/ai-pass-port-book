@@ -7,8 +7,6 @@
 #include "bsp_i2c.h"
 #include "bsp_display.h"
 #include "bsp_button.h"
-#include "bsp_audio.h"
-#include "bsp_battery.h"
 #include "bsp_pins.h"
 #include "demo.h"
 #include "ui_pixel.h"
@@ -24,14 +22,10 @@
 static const char *TAG = "main";
 
 static const demo_entry_t DEMOS[] = {
-    { "显示", demo_display_enter, demo_display_exit, demo_display_key },
-    { "按键", demo_button_enter,  demo_button_exit,  demo_button_key  },
-    { "音频", demo_audio_enter,   demo_audio_exit,   demo_audio_key   },
-    { "电池", demo_battery_enter, demo_battery_exit, demo_battery_key },
-    { "无线", demo_wifi_enter,    demo_wifi_exit,    demo_wifi_key    },
-    { "电子书", demo_ebook_enter, demo_ebook_exit,   demo_ebook_key   },
-    { "智能",   demo_ai_enter,    demo_ai_exit,      demo_ai_key      },
-    { "关于",   demo_about_enter, demo_about_exit,   demo_about_key   },
+    { "无线",   demo_wifi_enter,    demo_wifi_exit,    demo_wifi_key    },
+    { "电子书", demo_ebook_enter,   demo_ebook_exit,   demo_ebook_key   },
+    { "智能",   demo_ai_enter,      demo_ai_exit,      demo_ai_key      },
+    { "关于",   demo_about_enter,   demo_about_exit,   demo_about_key   },
 };
 #define DEMO_COUNT (sizeof(DEMOS) / sizeof(DEMOS[0]))
 
@@ -86,7 +80,7 @@ static void menu_build(void) {
     }
 
     // 吉祥物放在最后一行卡片下方, 随内容一起滚动
-    s_mascot = ui_pixel_mascot_create(s_menu_body, 101, 4 * 78 + 14);
+    s_mascot = ui_pixel_mascot_create(s_menu_body, 101, 2 * 78 + 14);
 
     menu_refresh();
     lv_screen_load(s_menu_scr);
@@ -170,14 +164,12 @@ void app_main(void) {
         return;
     }
 
-    s_ok[0] = true;                                   // 显示
-    s_ok[1] = (bsp_button_init(on_key, NULL) == ESP_OK);  // 按键
-    s_ok[2] = (bsp_audio_init() == ESP_OK);           // 音频
-    s_ok[3] = (bsp_battery_init() == ESP_OK);         // 电池
-    s_ok[4] = true;                                   // WiFi(自身处理失败)
-    s_ok[5] = s_spiffs_ok;                            // 电子书
-    s_ok[6] = true;                                   // AI
-    s_ok[7] = true;                                   // 关于
+    s_ok[0] = true;                                   // 无线(自身处理失败)
+    s_ok[1] = s_spiffs_ok;                            // 电子书
+    s_ok[2] = true;                                   // AI
+    s_ok[3] = true;                                   // 关于
+
+    ESP_ERROR_CHECK(bsp_button_init(on_key, NULL));   // 按键(全局必需)
 
     if (bsp_lvgl_lock(1000)) { enter_menu(); bsp_lvgl_unlock(); }
 
