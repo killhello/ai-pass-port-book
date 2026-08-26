@@ -1,5 +1,5 @@
 // Auto-generated background image (240x320 RGB565)
-// LVGL 9.5 compatible format
+// LVGL 9.5 compatible format - magic + LV_COLOR_FORMAT_RGB565
 #include "lvgl.h"
 
 static const uint8_t bg_img_data[] = {
@@ -9606,12 +9606,12 @@ static const uint8_t bg_img_data[] = {
 };
 
 const lv_image_dsc_t bg_img_dsc = {
-    .header = {
-        .cf = LV_IMG_CF_TRUE_COLOR,
-        .flags = 0,
-        .w = 240,
-        .h = 320,
-    },
+    .header.magic = LV_IMAGE_HEADER_MAGIC,
+    .header.cf = LV_COLOR_FORMAT_RGB565,
+    .header.flags = 0,
+    .header.w = 240,
+    .header.h = 320,
+    .header.stride = 480,
     .data_size = sizeof(bg_img_data),
     .data = bg_img_data,
 };
