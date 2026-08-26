@@ -13,6 +13,7 @@
 #include "lvgl.h"
 #include "font_cn_16.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
@@ -89,6 +90,9 @@ static void menu_build(void) {
 static void enter_menu(void) {
     s_active = -1;
     menu_build();
+    ESP_LOGI(TAG, "空闲堆: %lu KB, 历史最低: %lu KB",
+             (unsigned long)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024),
+             (unsigned long)(heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT) / 1024));
 }
 
 static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
