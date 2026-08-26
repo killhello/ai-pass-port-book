@@ -14,9 +14,9 @@ static const char *TAG = "ebook_reader";
 #define NVS_KEY_POS     "page_pos"
 #define NVS_KEY_PAGE    "cur_page"
 
-// 估算每页字符数(240x320 屏,16 号字体约 20 行 x 20 字 = 400 字)
-// 留一些余量用于换行和中英文混合
-#define DEFAULT_CHARS_PER_PAGE  400
+// 每页字符数按面板实测: 正文区约 204x224px, 16 号中文字体
+// 每行约 12 个汉字、共约 10 行 => 120 字左右; 取 120 防溢出
+#define DEFAULT_CHARS_PER_PAGE  120
 
 // ---------------------------------------------------------------------------
 // 工具:从文件 pos 处读取一页内容,返回这页的字节数。
