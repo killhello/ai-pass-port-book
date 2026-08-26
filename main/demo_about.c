@@ -35,17 +35,11 @@ static void show_page(void) {
 }
 
 void demo_about_enter(void) {
-    s_scr = ui_pixel_screen_create("关于");
-
-    // 标题
-    lv_obj_t *title = lv_label_create(s_scr);
-    lv_obj_set_style_text_font(title, &notosanssc_16, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(UI_INK), 0);
-    lv_label_set_text(title, "开源软件声明");
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
+    // 页眉标题直接显示文档名(中文, 由 ui_pixel_screen_create 渲染)
+    s_scr = ui_pixel_screen_create("开源软件声明");
 
     // 正文面板(与电子书页一致)
-    lv_obj_t *panel = ui_pixel_panel_create(s_scr, 10, 40, 220, 248, UI_PAPER);
+    lv_obj_t *panel = ui_pixel_panel_create(s_scr, 10, 48, 220, 248, UI_PAPER);
     s_text = lv_label_create(panel);
     lv_obj_set_style_text_font(s_text, &notosanssc_16, 0);
     lv_obj_set_style_text_color(s_text, lv_color_hex(UI_INK), 0);
