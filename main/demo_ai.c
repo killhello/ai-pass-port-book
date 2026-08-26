@@ -176,25 +176,28 @@ void demo_ai_exit(void) {
 }
 
 void demo_ai_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
-    if (ev != BSP_BTN_CLICK) return;
+    if (ev != BSP_BTN_CLICK && ev != BSP_BTN_LONG) return;
+    if (s_state == ST_BUSY) return;
 
     if (s_state == ST_INPUT) {
         if (btn == BSP_BTN_UP) {
-            s_cell_idx = (s_cell_idx + CELL_TOTAL - 1) % CELL_TOTAL;
+            int step = (ev == BSP_BTN_LONG) ? 8 : 1;   // 长按快速跳 8 格
+            s_cell_idx = (s_cell_idx + CELL_TOTAL - step) % CELL_TOTAL;
             refresh_input();
         } else if (btn == BSP_BTN_DOWN) {
-            s_cell_idx = (s_cell_idx + 1) % CELL_TOTAL;
+            int step = (ev == BSP_BTN_LONG) ? 8 : 1;
+            s_cell_idx = (s_cell_idx + step) % CELL_TOTAL;
             refresh_input();
         } else if (btn == BSP_BTN_OK) {
             cell_action();
         }
     } else if (s_state == ST_REPLY && s_r_scr) {
-        // 回到输入屏(保留已输入文本)
+        // 回到输入屏: 按需求清空全部内容, 开始新提问
+        s_text[0] = 0;
         lv_obj_delete(s_r_scr);
         s_r_scr = NULL;
         s_state = ST_INPUT;
+        refresh_input();
         lv_screen_load(s_in_scr);
-    } else if (s_state == ST_BUSY) {
-        set_hint("请求中...");   // 忙碌期忽略
     }
 }

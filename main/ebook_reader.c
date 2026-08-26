@@ -56,60 +56,10 @@ static int read_page_from_file(FILE *fp, uint32_t pos, char *buf, int buf_size,
     return total;
 }
 
-// 估算上一页的起始位置:从当前 pos 往回找 chars_per_page 个字符,
-// 然后再往回找到最近的行首(换行符之后),避免把一行拆成两页。
-static uint32_t find_prev_page_pos(FILE *fp, uint32_t current_pos,
-                                    int chars_per_page) {
-    if (current_pos == 0) return 0;
-
-    // 先估算搜索范围:往回跳约 2 页的位置,留足够余量
-    uint32_t search_start = (current_pos > (uint32_t)(chars_per_page * 2))
-                              ? current_pos - chars_per_page * 2
-                              : 0;
-
-    int chunk_size = (int)(current_pos - search_start);
-    if (chunk_size <= 0) return 0;
-
-    char *chunk = malloc(chunk_size);
-    if (!chunk) return 0;
-
-    if (fseek(fp, search_start, SEEK_SET) != 0) { free(chunk); return 0; }
-    int nread = (int)fread(chunk, 1, chunk_size, fp);
-    if (nread <= 0) { free(chunk); return 0; }
-
-    // 从 chunk 末尾(=current_pos - 1)往回数 chars_per_page 个字符
-    int i = nread - 1;
-    int chars_back = 0;
-    int prev_page_end = nread;  // 上一页的结束位置(=当前页开始的前一个)
-
-    // 第一步:往回数 chars_per_page 个字符
-    while (i >= 0 && chars_back < chars_per_page) {
-        if ((chunk[i] & 0xC0) != 0x80) {
-            chars_back++;
-        }
-        i--;
-    }
-
-    // 第二步:继续往回找,直到找到换行符或文件开头
-    // 此时 i 指向第 chars_per_page 个字符的前一个位置
-    // 我们要找这之前最近的换行符,上一页从换行符之后开始
-    while (i >= 0) {
-        if (chunk[i] == '\n') {
-            // 找到了换行符,上一页从换行符下一个字节开始
-            free(chunk);
-            return search_start + i + 1;
-        }
-        i--;
-    }
-
-    // 没找到换行符,说明上一页从文件开头开始
-    free(chunk);
-    return search_start > 0 ? 0 : search_start;
-}
-
 void ebook_reader_init(ebook_reader_t *r) {
     memset(r, 0, sizeof(*r));
     r->chars_per_page = DEFAULT_CHARS_PER_PAGE;
+    r->hist_top = 0;
 }
 
 bool ebook_reader_open(ebook_reader_t *r, const char *path) {
@@ -172,6 +122,15 @@ bool ebook_reader_next_page(ebook_reader_t *r) {
     uint32_t next_pos = r->page_pos + r->page_len;
     if (next_pos >= r->file_size) return false;
 
+    // 压栈当前位置, 供上一页精确返回
+    if (r->hist_top < EBOOK_HIST_MAX) {
+        r->hist[r->hist_top++] = r->page_pos;
+    } else {
+        // 栈满: 丢最老的一条
+        for (int i = 1; i < EBOOK_HIST_MAX; i++) r->hist[i - 1] = r->hist[i];
+        r->hist[EBOOK_HIST_MAX - 1] = r->page_pos;
+    }
+
     r->page_pos = next_pos;
     r->current_page++;
     ebook_reader_read_page(r);
@@ -180,17 +139,9 @@ bool ebook_reader_next_page(ebook_reader_t *r) {
 
 bool ebook_reader_prev_page(ebook_reader_t *r) {
     if (!r->is_open) return false;
-    if (r->page_pos == 0) return false;  // 已到开头
+    if (r->hist_top == 0) return false;   // 没有前进历史(刚打开/已回到起点)
 
-    FILE *fp = fopen(r->path, "r");
-    if (!fp) return false;
-
-    uint32_t prev_pos = find_prev_page_pos(fp, r->page_pos, r->chars_per_page);
-    fclose(fp);
-
-    if (prev_pos >= r->page_pos) return false;  // 没找到上一页
-
-    r->page_pos = prev_pos;
+    r->page_pos = r->hist[--r->hist_top];
     if (r->current_page > 0) r->current_page--;
     ebook_reader_read_page(r);
     return true;

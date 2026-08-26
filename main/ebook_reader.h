@@ -8,6 +8,7 @@
 
 #define EBOOK_MAX_PATH     64     // 最大文件路径长度
 #define EBOOK_PAGE_BUF     1024   // 单页缓冲大小(字节),足够装下 240x320 屏的文字
+#define EBOOK_HIST_MAX     64     // 翻页历史栈深度(上一页功能用)
 
 typedef struct {
     char     path[EBOOK_MAX_PATH];   // 当前书籍路径
@@ -19,6 +20,8 @@ typedef struct {
     int      page_len;               // 当前页实际字节数
     int      chars_per_page;         // 每页大约字符数(用于估算页数)
     bool     is_open;                // 是否已打开文件
+    uint32_t hist[EBOOK_HIST_MAX];   // 前进路径栈: 上一页=弹栈, 保证与前进分页严格互逆
+    int      hist_top;               // 栈内元素数
 } ebook_reader_t;
 
 // 初始化阅读器
