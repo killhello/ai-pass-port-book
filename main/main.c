@@ -125,6 +125,17 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
     bsp_lvgl_unlock();
 }
 
+// 开机 WiFi 保活: 有存档就自动重连, 断线 5 秒后重试
+static void wifi_keep_task(void *arg) {
+    (void)arg;
+    for (;;) {
+        if (!wifi_sta_is_suspended() && !wifi_sta_is_connected()) {
+            wifi_sta_connect_default();
+        }
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+}
+
 void app_main(void) {
     ESP_LOGI(TAG, "=== 启动 ===");
 
@@ -176,6 +187,9 @@ void app_main(void) {
     ESP_ERROR_CHECK(bsp_button_init(on_key, NULL));   // 按键(全局必需)
 
     if (bsp_lvgl_lock(1000)) { enter_menu(); bsp_lvgl_unlock(); }
+
+    // 后台自动重连 WiFi(已配过网则开机即连, 无存档则静默失败)
+    xTaskCreate(wifi_keep_task, "wifi_keep", 4096, NULL, 2, NULL);
 
     ESP_LOGI(TAG, "=== 启动完成 ===");
 }

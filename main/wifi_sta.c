@@ -27,10 +27,12 @@ static const char *NVS_NS = "wifi_sta";
 
 static SemaphoreHandle_t s_nvs_mutex;
 static SemaphoreHandle_t s_got_ip;
+static SemaphoreHandle_t s_conn_mutex;   // 串行化连接流程, 防多任务并发 connect
 static volatile bool s_connected = false;
 static bool s_inited = false;
 static bool s_once = false;   // netif/事件处理器只需创建一次, 反复 init/deinit 会泄漏
 static char s_cur_ssid[33] = {0};
+static volatile bool s_suspended = false;   // 配网期间挂起自动重连
 
 static wifi_sta_cb_t s_user_cb = NULL;
 static void *s_user_data = NULL;
@@ -104,6 +106,7 @@ esp_err_t wifi_sta_init(void) {
         esp_netif_create_default_wifi_sta();
         s_got_ip = xSemaphoreCreateBinary();
         if (!s_got_ip) return ESP_ERR_NO_MEM;
+        s_conn_mutex = xSemaphoreCreateMutex();
         ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_wifi_event, NULL));
         ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_wifi_event, NULL));
         s_once = true;
@@ -161,9 +164,22 @@ int wifi_sta_scan(wifi_ap_info_t *out, int max_count) {
     return cnt;
 }
 
+void wifi_sta_set_suspended(bool en) { s_suspended = en; }
+bool wifi_sta_is_suspended(void)     { return s_suspended; }
+
 esp_err_t wifi_sta_connect(const char *ssid, const char *pass) {
+    if (s_suspended) return ESP_ERR_INVALID_STATE;
     if (wifi_sta_init() != ESP_OK) return ESP_ERR_NO_MEM;
-    if (s_connected && strcmp(s_cur_ssid, ssid) == 0) return ESP_OK;
+
+    // 串行化: keepalive 任务与 AI 请求可能同时触发连接
+    if (s_conn_mutex && xSemaphoreTake(s_conn_mutex, pdMS_TO_TICKS(5000)) != pdTRUE)
+        return ESP_ERR_TIMEOUT;
+
+    esp_err_t ret = ESP_OK;
+    if (s_connected && strcmp(s_cur_ssid, ssid) == 0) {
+        ret = ESP_OK;                       // 已连同一网络
+        goto out;
+    }
 
     if (s_connected) {
         esp_wifi_disconnect();
@@ -186,17 +202,22 @@ esp_err_t wifi_sta_connect(const char *ssid, const char *pass) {
     esp_err_t err = esp_wifi_connect();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "连接启动失败: %s", esp_err_to_name(err));
-        return err;
+        ret = err;
+        goto out;
     }
 
     if (xSemaphoreTake(s_got_ip, pdMS_TO_TICKS(30000)) == pdTRUE) {
         strlcpy(s_cur_ssid, ssid, sizeof(s_cur_ssid));
         save_creds(ssid, pass);
         ESP_LOGI(TAG, "已连接 %s", ssid);
-        return ESP_OK;
+        ret = ESP_OK;
+    } else {
+        ESP_LOGE(TAG, "连接 %s 超时", ssid);
+        ret = ESP_ERR_TIMEOUT;
     }
-    ESP_LOGE(TAG, "连接 %s 超时", ssid);
-    return ESP_ERR_TIMEOUT;
+out:
+    xSemaphoreGive(s_conn_mutex);
+    return ret;
 }
 
 esp_err_t wifi_sta_autoconnect(void) {

@@ -72,12 +72,14 @@ static void prov_task(void *arg) {
     // 从看门狗移除: 初始化/连接可能长时间阻塞, 只允许卡死不允许重启
     esp_task_wdt_delete(NULL);
 
+    wifi_sta_set_suspended(true);       // 挂起开机自动重连, 避免抢 WiFi
     wifi_sta_stop();                    // 释放 WiFi 驱动内存给 BLE 协议栈
     vTaskDelay(pdMS_TO_TICKS(200));
 
     esp_err_t err = ble_prov_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "BLE 启动失败: %s", esp_err_to_name(err));
+        wifi_sta_set_suspended(false);
         s_phase = PH_FAIL;
         s_task_alive = false;
         vTaskDelete(NULL);
@@ -90,6 +92,7 @@ static void prov_task(void *arg) {
         vTaskDelay(pdMS_TO_TICKS(300));
     }
 
+    wifi_sta_set_suspended(false);      // 配网结束, 恢复自动重连
     ble_prov_stop();                    // 先释放 BLE 内存再连 WiFi
 
     if (s_cancel) {
