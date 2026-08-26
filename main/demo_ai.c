@@ -1,6 +1,6 @@
 // main/demo_ai.c —— AI 对话页(三键字符选择器输入)。
-// 输入区: 上/下 移动选中字符, OK 追加; 特殊项: 空格/删除/发送
-// 发送后进入回复态, OK 返回输入区继续编辑; 长按 OK 由 main 返回菜单。
+// 输入屏与回复屏分开构建(lv_screen_load 切换), 规避 panel 阴影块无法隐藏的问题。
+// 输入屏: 上/下 移动选中字符, OK 追加; 特殊项: 空格/删除/发送。
 #include "demo.h"
 #include "font_cn_16.h"
 #include "bsp_display.h"
@@ -8,7 +8,6 @@
 #include "lvgl.h"
 #include "ai_chat.h"
 #include "esp_log.h"
-#include "esp_heap_caps.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -24,11 +23,11 @@ static const char *S_SPECIAL[3] = { "空格", "删除", "发送" };
 
 typedef enum { ST_INPUT = 0, ST_BUSY, ST_REPLY } ai_ui_state_t;
 
-static lv_obj_t *s_scr;
+static lv_obj_t *s_in_scr;       // 输入屏
 static lv_obj_t *s_typed;        // 已输入文本
 static lv_obj_t *s_cell;         // 当前字符大字
-static lv_obj_t *s_hint;         // 底部提示
-static lv_obj_t *s_reply;        // 回复正文
+static lv_obj_t *s_hint;         // 输入屏底部提示
+static lv_obj_t *s_r_scr;        // 回复屏(收到回复时构建)
 
 static ai_ui_state_t s_state;
 static int  s_cell_idx;
@@ -39,7 +38,38 @@ static void refresh_input(void);
 static void start_send(void);
 
 static void set_hint(const char *s) {
-    lv_label_set_text(s_hint, s);
+    if (s_hint) lv_label_set_text(s_hint, s);
+}
+
+// ---- 回复屏: 收到结果时构建并切换 ----
+static void show_reply(ai_state_t state, const char *text) {
+    s_r_scr = ui_pixel_screen_create("AI 回复");
+
+    lv_obj_t *panel = ui_pixel_panel_create(s_r_scr, 10, 48, 220, 248, UI_PAPER);
+    lv_obj_t *rl = lv_label_create(panel);
+    lv_obj_set_style_text_font(rl, &notosanssc_16, 0);
+    lv_obj_set_style_text_color(rl, lv_color_hex(UI_INK), 0);
+    lv_obj_set_size(rl, 200, 228);
+    lv_obj_align(rl, LV_ALIGN_TOP_LEFT, 4, 4);
+    if (state == AI_STATE_OK) {
+        // 长回复循环滚动显示; 短回复静态
+        lv_label_set_long_mode(rl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_label_set_text(rl, text);
+    } else {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "失败:%s", text ? text : "");
+        lv_label_set_long_mode(rl, LV_LABEL_LONG_WRAP);
+        lv_label_set_text(rl, buf);
+    }
+
+    lv_obj_t *hint = lv_label_create(s_r_scr);
+    lv_obj_set_style_text_font(hint, &notosanssc_16, 0);
+    lv_obj_set_style_text_color(hint, lv_color_hex(UI_SKY_DARK), 0);
+    lv_label_set_text(hint, "OK 返回输入");
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
+
+    s_state = ST_REPLY;
+    lv_screen_load(s_r_scr);
 }
 
 // ---- 回调(ai_chat worker 上下文, 自带 LVGL 锁) ----
@@ -49,22 +79,9 @@ static void on_result(ai_state_t state, const char *text) {
         return;
     }
     s_busy = false;
-    if (!s_scr) { bsp_lvgl_unlock(); return; }   // 页面已退出
+    if (!s_in_scr) { bsp_lvgl_unlock(); return; }   // 页面已退出
 
-    s_state = ST_REPLY;
-    // 切换到回复视图
-    lv_obj_add_flag(s_typed, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_cell, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(s_reply, LV_OBJ_FLAG_HIDDEN);
-    if (state == AI_STATE_OK) {
-        lv_label_set_text(s_reply, text);
-        set_hint("OK 继续提问");
-    } else {
-        char buf[128];
-        snprintf(buf, sizeof(buf), "失败:%s\n\n短按 OK 重试", text ? text : "");
-        lv_label_set_text(s_reply, buf);
-        set_hint("OK 返回输入");
-    }
+    show_reply(state, text);
     bsp_lvgl_unlock();
 }
 
@@ -116,13 +133,11 @@ static void cell_action(void) {
 }
 
 void demo_ai_enter(void) {
-    ESP_LOGI(TAG, "enter 开始, 空闲堆 %lu KB",
-             (unsigned long)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024));
-    s_scr = ui_pixel_screen_create("AI 助手");
-    ESP_LOGI(TAG, "screen ok");
+    s_state = ST_INPUT;
+    s_in_scr = ui_pixel_screen_create("AI 助手");
 
     // 已输入文本(上)
-    lv_obj_t *in_panel = ui_pixel_panel_create(s_scr, 10, 48, 220, 64, UI_PAPER);
+    lv_obj_t *in_panel = ui_pixel_panel_create(s_in_scr, 10, 48, 220, 64, UI_PAPER);
     s_typed = lv_label_create(in_panel);
     lv_obj_set_style_text_font(s_typed, &notosanssc_16, 0);
     lv_obj_set_style_text_color(s_typed, lv_color_hex(UI_INK), 0);
@@ -131,44 +146,33 @@ void demo_ai_enter(void) {
     lv_label_set_long_mode(s_typed, LV_LABEL_LONG_WRAP);
 
     // 当前字符大字(中)
-    lv_obj_t *cell_panel = ui_pixel_panel_create(s_scr, 84, 126, 72, 56, UI_PAPER);
+    lv_obj_t *cell_panel = ui_pixel_panel_create(s_in_scr, 84, 126, 72, 56, UI_PAPER);
     s_cell = lv_label_create(cell_panel);
     lv_obj_center(s_cell);
 
-    // 回复正文(默认隐藏)
-    s_reply = ui_pixel_panel_create(s_scr, 10, 48, 220, 248, UI_PAPER);
-    lv_obj_t *rl = lv_label_create(s_reply);
-    lv_obj_set_style_text_font(rl, &notosanssc_16, 0);
-    lv_obj_set_style_text_color(rl, lv_color_hex(UI_INK), 0);
-    lv_obj_set_size(rl, 200, 230);
-    lv_obj_align(rl, LV_ALIGN_TOP_LEFT, 4, 4);
-    lv_label_set_long_mode(rl, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_add_flag(s_reply, LV_OBJ_FLAG_HIDDEN);
-    (void)rl;
-
     // 底部提示
-    s_hint = lv_label_create(s_scr);
+    s_hint = lv_label_create(s_in_scr);
     lv_obj_set_style_text_font(s_hint, &notosanssc_16, 0);
     lv_obj_set_style_text_color(s_hint, lv_color_hex(UI_SKY_DARK), 0);
     lv_obj_align(s_hint, LV_ALIGN_BOTTOM_MID, 0, -10);
 
-    s_state = ST_INPUT;
     s_cell_idx = 0;
     refresh_input();
     set_hint("上/下 选字  OK 确定");
-    lv_screen_load(s_scr);
+    lv_screen_load(s_in_scr);
 }
 
 void demo_ai_exit(void) {
-    if (s_scr) {
-        lv_obj_delete(s_scr);
-        s_scr = NULL;
+    // 输入屏与回复屏都要清(当前只可能挂载其中之一)
+    if (s_r_scr) { lv_obj_delete(s_r_scr); s_r_scr = NULL; }
+    if (s_in_scr) {
+        lv_obj_delete(s_in_scr);
+        s_in_scr = NULL;
         s_typed = NULL;
         s_cell = NULL;
-        s_reply = NULL;
         s_hint = NULL;
     }
-    // 在途请求由 on_result 里 s_scr==NULL 分支自然丢弃
+    // 在途请求由 on_result 里 s_in_scr==NULL 分支自然丢弃
 }
 
 void demo_ai_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
@@ -184,14 +188,12 @@ void demo_ai_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
         } else if (btn == BSP_BTN_OK) {
             cell_action();
         }
-    } else if (s_state == ST_REPLY) {
-        // 返回输入区(保留已输入文本, 可继续编辑/重发)
+    } else if (s_state == ST_REPLY && s_r_scr) {
+        // 回到输入屏(保留已输入文本)
+        lv_obj_delete(s_r_scr);
+        s_r_scr = NULL;
         s_state = ST_INPUT;
-        lv_obj_add_flag(s_reply, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(s_typed, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(s_cell, LV_OBJ_FLAG_HIDDEN);
-        refresh_input();
-        set_hint("上/下 选字  OK 确定");
+        lv_screen_load(s_in_scr);
     } else if (s_state == ST_BUSY) {
         set_hint("请求中...");   // 忙碌期忽略
     }
