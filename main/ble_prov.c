@@ -180,10 +180,6 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg) {
     case BLE_GAP_EVENT_MTU:
         ESP_LOGI(TAG, "MTU 协商: %d", event->mtu.value);
         return 0;
-    case BLE_GAP_EVENT_TERMINATE:
-        ESP_LOGI(TAG, "连接终止, 原因=%d", event->terminate.reason);
-        s_conn_h = BLE_HS_CONN_HANDLE_NONE;
-        return 0;
     default:
         return 0;
     }
