@@ -44,6 +44,8 @@ static int read_page_from_file(FILE *fp, uint32_t pos, char *buf, int buf_size,
 
         // 已经够一页字符数后,再读到换行就停
         if (page_filled && c == '\n') break;
+        // 无换行兜底: 超出限额外 60 字符强制断页, 防止长段落撑爆面板
+        if (page_filled && char_count >= chars_per_page + 60) break;
 
         if (char_count >= chars_per_page && !page_filled) {
             page_filled = true;
@@ -85,6 +87,7 @@ bool ebook_reader_open(ebook_reader_t *r, const char *path) {
     r->current_page = 0;
     r->page_len = 0;
     r->is_open = true;
+    r->hist_top = 0;   // 新开一本书, 清空翻页历史
 
     // 估算总页数
     r->total_pages = (r->file_size + r->chars_per_page - 1) / r->chars_per_page;

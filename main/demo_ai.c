@@ -76,6 +76,7 @@ static void show_reply(ai_state_t state, const char *text) {
 static void on_result(ai_state_t state, const char *text) {
     if (!bsp_lvgl_lock(2000)) {
         ESP_LOGE(TAG, "LVGL 锁超时, 丢弃结果");
+        s_busy = false;   // 复位忙标志, 否则之后永远无法再次发送
         return;
     }
     s_busy = false;
