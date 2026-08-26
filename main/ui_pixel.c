@@ -1,6 +1,5 @@
 #include "ui_pixel.h"
 #include "font_cn_16.h"
-#include "bg_img.h"
 
 static void start_blink(lv_obj_t *eye);
 
@@ -42,11 +41,6 @@ lv_obj_t *ui_pixel_screen_create(const char *title)
     lv_obj_set_style_bg_color(scr, lv_color_hex(UI_SKY), 0);
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_set_style_pad_all(scr, 0, 0);
-
-    // 背景图片
-    lv_obj_t *bg = lv_img_create(scr);
-    lv_img_set_src(bg, &bg_img_dsc);
-    lv_obj_set_pos(bg, 0, 0);
 
     add_cloud(scr, 188, 8);
     block(scr, 0, 286, 240, 34, UI_GRASS);
