@@ -25,10 +25,9 @@ lv_display_t *bsp_lvgl_init(void) {
     const lvgl_port_display_cfg_t dc = {
         .panel_handle = bsp_display_panel(),
         .io_handle    = bsp_display_io(),
-        // ⚠ C3 无 PSRAM,DMA 只能用内部 RAM(总共约 150KB)。
-        // 20 行单缓冲 ≈ 9.6KB;若改成 40 行双缓冲(≈37.5KB)会把 I2S 等外设的
-        // DMA 描述符挤到 NO_MEM。刷新略慢但稳。
-        .buffer_size   = (uint32_t)BSP_LCD_W * 20,
+        // ⚠ C3 无 PSRAM,DMA 只能用内部 RAM。
+        // 30 行单缓冲 ≈ 14.4KB: 相比 20 行减少一半刷新次数, 内存增量可控。
+        .buffer_size   = (uint32_t)BSP_LCD_W * 30,
         .double_buffer = false,
         .hres = BSP_LCD_W, .vres = BSP_LCD_H,
         // 旋转/镜像必须在这里配:esp_lvgl_port 注册显示时会重新下发 MADCTL,
