@@ -8,7 +8,7 @@
 
 // --- AI 接口(OpenAI 兼容 /chat/completions) ---
 #define AI_API_URL    "https://uuapi.io/v1/chat/completions"
-#define AI_API_KEY    "YOU_KEY"
+#define AI_API_KEY    "sk-d5f7913ccde1434a681f08cf295b3465199841eb661158afd077c6f27bf6ba40"
 #define AI_MODEL      "gpt-5.6-terra"
 
 // 备用: 百度千帆 v2
