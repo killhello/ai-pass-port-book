@@ -9604,7 +9604,8 @@ static const uint8_t bg_img_data[] = {
     0xe5, 0x20, 0xe5, 0x20, 0xe5, 0x20, 0xe5, 0x20, 0xc5, 0x18, 0xe5, 0x20, 0xe5, 0x18, 0xe5, 0x18,
 };
 
-const lv_img_dsc_t bg_img_dsc = {
+// LVGL 9.x image descriptor
+const lv_image_dsc_t bg_img_dsc = {
     .header.cf = LV_IMG_CF_TRUE_COLOR,
     .header.always_zero = 0,
     .header.w = 240,
