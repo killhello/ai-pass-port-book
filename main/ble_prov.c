@@ -115,6 +115,7 @@ static int cb_ssid(uint16_t conn, uint16_t attr,
         int n = snprintf(info, sizeof(info), "ssid=%s", s_have_ssid ? s_ssid : "-");
         return os_mbuf_append(ctxt->om, info, n);
     }
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return 0;
     char buf[40] = {0};
     if (write_to_buf(ctxt, buf, sizeof(buf)) != 0) return BLE_ATT_ERR_INSUFFICIENT_RES;
     if (!buf[0]) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -127,6 +128,8 @@ static int cb_ssid(uint16_t conn, uint16_t attr,
 static int cb_pass(uint16_t conn, uint16_t attr,
                    struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn; (void)attr; (void)arg;
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) return os_mbuf_append(ctxt->om, "", 0);
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return 0;
     char buf[68] = {0};
     if (write_to_buf(ctxt, buf, sizeof(buf)) != 0) return BLE_ATT_ERR_INSUFFICIENT_RES;
     strlcpy(s_pass, buf, sizeof(s_pass));
@@ -137,6 +140,8 @@ static int cb_pass(uint16_t conn, uint16_t attr,
 static int cb_ctrl(uint16_t conn, uint16_t attr,
                    struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn; (void)attr; (void)arg;
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) return os_mbuf_append(ctxt->om, "", 0);
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return 0;
     char buf[8] = {0};
     if (write_to_buf(ctxt, buf, sizeof(buf)) != 0) return BLE_ATT_ERR_INSUFFICIENT_RES;
     if ((uint8_t)buf[0] != 0x01) {
@@ -144,8 +149,8 @@ static int cb_ctrl(uint16_t conn, uint16_t attr,
         return 0;
     }
     if (!s_have_ssid) {
-        ESP_LOGW(TAG, "连接命令但未收到 SSID");
-        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        ESP_LOGW(TAG, "连接命令但未收到 SSID, 忽略");
+        return 0;
     }
     ESP_LOGI(TAG, "控制命令: 触发连接");
     s_got = true;
@@ -171,6 +176,13 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg) {
         return 0;
     case BLE_GAP_EVENT_ADV_COMPLETE:
         if (!s_got && s_running) adv_restart();
+        return 0;
+    case BLE_GAP_EVENT_MTU:
+        ESP_LOGI(TAG, "MTU 协商: %d", event->mtu.value);
+        return 0;
+    case BLE_GAP_EVENT_TERMINATE:
+        ESP_LOGI(TAG, "连接终止, 原因=%d", event->terminate.reason);
+        s_conn_h = BLE_HS_CONN_HANDLE_NONE;
         return 0;
     default:
         return 0;
@@ -232,11 +244,14 @@ esp_err_t ble_prov_start(void) {
     esp_err_t err = nimble_port_init();
     if (err != ESP_OK) { ESP_LOGE(TAG, "nimble init 失败: %s", esp_err_to_name(err)); return err; }
 
-    ble_svc_gap_device_name_set(DEV_NAME);
+    int rc = ble_svc_gap_device_name_set(DEV_NAME);
+    if (rc != 0) ESP_LOGE(TAG, "name set 失败: %d", rc);
     ble_svc_gap_init();
     ble_svc_gatt_init();
-    ble_gatts_count_cfg(s_svcs);
-    ble_gatts_add_svcs(s_svcs);
+    rc = ble_gatts_count_cfg(s_svcs);
+    if (rc != 0) ESP_LOGE(TAG, "count_cfg 失败: %d", rc);
+    rc = ble_gatts_add_svcs(s_svcs);
+    if (rc != 0) ESP_LOGE(TAG, "add_svcs 失败: %d", rc);
 
     ble_hs_cfg.sync_cb = on_sync;
     ble_hs_cfg.reset_cb = on_reset;
