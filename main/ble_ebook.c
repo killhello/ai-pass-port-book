@@ -42,8 +42,8 @@ static uint16_t s_conn_h = BLE_HS_CONN_HANDLE_NONE;
 static uint8_t s_own_addr_type;
 
 static ble_ebook_state_t s_state = BLE_EBOOK_IDLE;
-static ble_ebook_state_cb_t s_state_cb = NULL;
-static ble_ebook_progress_cb_t s_progress_cb = NULL;
+static volatile ble_ebook_state_cb_t s_state_cb = NULL;
+static volatile ble_ebook_progress_cb_t s_progress_cb = NULL;
 
 static FILE *s_fp = NULL;
 static char s_filename[128];
@@ -106,6 +106,11 @@ static int cb_name(uint16_t conn, uint16_t attr,
     const char *p = strrchr(buf, '/');
     if (!p) p = strrchr(buf, '\\');
     if (p) p++; else p = buf;
+    // 安全检查：拒绝路径遍历
+    if (strstr(p, "..") || strchr(p, '/') || strchr(p, '\\')) {
+        ESP_LOGW(TAG, "非法文件名: %s", p);
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
     strlcpy_ebk(s_filename, p, sizeof(s_filename));
     ESP_LOGI(TAG, "文件名: %s", s_filename);
     return 0;
@@ -124,8 +129,14 @@ static int cb_data(uint16_t conn, uint16_t attr,
     if (ble_hs_mbuf_to_flat(ctxt->om, buf, len, &len) != 0)
         return BLE_ATT_ERR_INSUFFICIENT_RES;
     size_t written = fwrite(buf, 1, len, s_fp);
+    if (written != len) {
+        ESP_LOGE(TAG, "写入失败: %zu/%u", written, len);
+        close_file();
+        set_state(BLE_EBOOK_ERROR);
+        return BLE_ATT_ERR_UNLIKELY;
+    }
     s_received += written;
-    if (s_progress_cb) s_progress_cb(s_received, s_filesize);
+    if (s_running && s_progress_cb) s_progress_cb(s_received, s_filesize);
     return 0;
 }
 

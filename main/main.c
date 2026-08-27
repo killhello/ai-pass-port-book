@@ -115,7 +115,6 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
                                    lv_obj_scroll_to_view(s_cards[s_sel], LV_ANIM_ON); }
         if (btn == BSP_BTN_OK && s_ok[s_sel]) {
             s_active = s_sel;
-            ui_pixel_mascot_jump(s_mascot);
             lv_obj_delete(s_menu_scr);
             s_menu_scr = NULL;
             s_mascot = NULL;

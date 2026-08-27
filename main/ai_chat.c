@@ -72,16 +72,24 @@ static char *extract_content(const char *body) {
     }
     char *out = NULL;
     cJSON *choices = cJSON_GetObjectItem(root, "choices");
-    cJSON *first   = cJSON_GetArrayItem(choices, 0);
-    cJSON *msg     = cJSON_GetObjectItem(first, "message");
-    cJSON *content = cJSON_GetObjectItem(msg, "content");
-    if (cJSON_IsString(content) && content->valuestring) {
-        out = strdup(content->valuestring);
+    if (choices) {
+        cJSON *first = cJSON_GetArrayItem(choices, 0);
+        if (first) {
+            cJSON *msg = cJSON_GetObjectItem(first, "message");
+            if (msg) {
+                cJSON *content = cJSON_GetObjectItem(msg, "content");
+                if (cJSON_IsString(content) && content->valuestring) {
+                    out = strdup(content->valuestring);
+                }
+            }
+        }
     }
     if (!out) {
         cJSON *err = cJSON_GetObjectItem(root, "error");
-        cJSON *emsg = cJSON_GetObjectItem(err, "message");
-        if (cJSON_IsString(emsg)) out = strdup(emsg->valuestring);
+        if (err) {
+            cJSON *emsg = cJSON_GetObjectItem(err, "message");
+            if (cJSON_IsString(emsg)) out = strdup(emsg->valuestring);
+        }
     }
     cJSON_Delete(root);
     return out;

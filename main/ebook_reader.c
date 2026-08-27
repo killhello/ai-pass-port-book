@@ -154,11 +154,7 @@ bool ebook_reader_prev_page(ebook_reader_t *r) {
 bool ebook_reader_goto_page(ebook_reader_t *r, uint32_t page) {
     if (!r->is_open) return false;
 
-    // 估算目标页的起始位置(粗略估算,实际位置会在翻页时调整)
-    uint32_t target_pos = page * r->chars_per_page;
-    if (target_pos >= r->file_size) target_pos = r->file_size - 1;
-
-    // 如果目标页在当前页之前,从开头翻过去更准确
+    // 从开头逐页翻到目标页（保证分页边界正确）
     r->page_pos = 0;
     r->current_page = 0;
     ebook_reader_read_page(r);

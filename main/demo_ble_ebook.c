@@ -91,15 +91,15 @@ static void update_ui(void) {
 }
 
 static void on_state_change(ble_ebook_state_t state) {
-    if (s_scr && bsp_lvgl_lock(200)) {
-        update_ui();
+    if (bsp_lvgl_lock(200)) {
+        if (s_scr) update_ui();
         bsp_lvgl_unlock();
     }
 }
 
 static void on_progress(uint32_t received, uint32_t total) {
-    if (s_scr && bsp_lvgl_lock(100)) {
-        update_ui();
+    if (bsp_lvgl_lock(100)) {
+        if (s_scr) update_ui();
         bsp_lvgl_unlock();
     }
 }
