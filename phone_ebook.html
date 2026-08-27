@@ -97,12 +97,12 @@ function onFile(ev){
   log("文件: "+f.name+" ("+f.size+" 字节)");
   const r=new FileReader();
   r.onload=function(e){
-    fileData=new TextEncoder().encode(e.target.result);
-    document.getElementById("fInfo").textContent=f.size+" 字节, "+fileData.length+" bytes";
+    fileData=new Uint8Array(e.target.result);
+    document.getElementById("fInfo").textContent=f.size+" 字节";
     document.getElementById("btnS").disabled=false;
     log("文件已加载，点击发送");
   };
-  r.readAsText(f,"UTF-8");
+  r.readAsArrayBuffer(f);
 }
 
 async function sendFile(){
