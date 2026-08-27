@@ -140,6 +140,8 @@ void demo_ble_ebook_enter(void) {
 }
 
 void demo_ble_ebook_exit(void) {
+    ble_ebook_set_state_cb(NULL);
+    ble_ebook_set_progress_cb(NULL);
     ble_ebook_stop();
     s_ble_started = false;
     if (s_scr) {

@@ -55,7 +55,7 @@ static uint32_t s_filesize = 0;
 
 static void set_state(ble_ebook_state_t st) {
     s_state = st;
-    if (s_state_cb) s_state_cb(st);
+    if (s_running && s_state_cb) s_state_cb(st);
 }
 
 static inline size_t strlcpy_ebk(char *d, const char *s, size_t n) {
@@ -240,8 +240,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg) {
         s_conn_h = BLE_HS_CONN_HANDLE_NONE;
         ESP_LOGI(TAG, "手机断开");
         close_file();
-        set_state(BLE_EBOOK_IDLE);
-        if (s_running) adv_restart();
+        if (s_running) { set_state(BLE_EBOOK_IDLE); adv_restart(); }
         return 0;
     case BLE_GAP_EVENT_ADV_COMPLETE:
         if (s_running) adv_restart();
@@ -274,6 +273,7 @@ bool ble_ebook_start(void) {
     s_filename[0] = 0;
     close_file();
 
+    nimble_port_deinit();
     esp_err_t err = nimble_port_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "nimble init 失败 %s", esp_err_to_name(err));
@@ -301,10 +301,7 @@ void ble_ebook_stop(void) {
     if (ble_gap_adv_active()) ble_gap_adv_stop();
     if (s_conn_h != BLE_HS_CONN_HANDLE_NONE) {
         ble_gap_terminate(s_conn_h, BLE_ERR_REM_USER_CONN_TERM);
-        vTaskDelay(pdMS_TO_TICKS(200));
     }
-    nimble_port_stop();
-    nimble_port_deinit();
     s_conn_h = BLE_HS_CONN_HANDLE_NONE;
     s_state = BLE_EBOOK_IDLE;
     ESP_LOGI(TAG, "BLE 电子书停止");
