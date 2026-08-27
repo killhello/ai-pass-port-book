@@ -29,3 +29,6 @@ void demo_ble_ebook_key(bsp_btn_t btn, bsp_btn_ev_t ev);
 
 void demo_music_enter(void); void demo_music_exit(void);
 void demo_music_key(bsp_btn_t btn, bsp_btn_ev_t ev);
+
+void demo_image_enter(void); void demo_image_exit(void);
+void demo_image_key(bsp_btn_t btn, bsp_btn_ev_t ev);

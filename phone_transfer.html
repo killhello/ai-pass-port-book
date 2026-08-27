@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI-Passport 传输助手</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,"Microsoft YaHei",sans-serif;background:#f0f2f5;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:12px}
+h1{color:#333;margin-bottom:2px;font-size:18px}
+.sub{color:#888;margin-bottom:10px;font-size:11px}
+.card{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);padding:12px;width:100%;max-width:380px;margin-bottom:8px}
+.tabs{display:flex;gap:4px;margin-bottom:10px}
+.tab{flex:1;padding:8px;border:none;border-radius:8px;font-size:13px;cursor:pointer;background:#e0e0e0;color:#666;transition:.2s}
+.tab.active{background:#1976d2;color:#fff}
+.status-bar{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.dot{width:10px;height:10px;border-radius:50%;background:#ccc;flex-shrink:0}
+.dot.on{background:#4caf50}.dot.rx{background:#ff9800}
+.st{font-size:12px;color:#666}
+.btn{display:block;width:100%;padding:10px;border:none;border-radius:8px;font-size:14px;cursor:pointer;transition:.2s}
+.btn-p{background:#1976d2;color:#fff}.btn-p:disabled{background:#ccc}
+.btn-d{background:#e53935;color:#fff;margin-top:4px}
+.btn-g{background:#43a047;color:#fff;margin-top:4px}
+.file-label{display:block;padding:8px;background:#f5f5f5;border:2px dashed #ccc;border-radius:8px;text-align:center;cursor:pointer;color:#666;margin-top:6px;font-size:13px}
+.file-label:hover{border-color:#1976d2;color:#1976d2}
+.info{font-size:11px;color:#888;margin-top:4px}
+.progress{margin-top:6px}
+.pbar{height:3px;background:#e0e0e0;border-radius:2px;overflow:hidden}
+.pfill{height:100%;background:#1976d2;width:0%;transition:width .2s}
+.ptxt{font-size:10px;color:#888;margin-top:2px}
+.log{background:#263238;color:#aed581;border-radius:8px;padding:8px;font-family:monospace;font-size:10px;max-height:120px;overflow-y:auto;word-break:break-all;white-space:pre-wrap}
+input[type=file]{display:none}
+.panel{display:none}
+.hint{font-size:10px;color:#999;margin-top:6px;text-align:center}
+</style>
+</head>
+<body>
+<h1>AI-Passport 传输助手</h1>
+<p class="sub">BLE 传输电子书 / 音乐 / 图片</p>
+
+<div class="card">
+  <div class="status-bar">
+    <div class="dot" id="dot"></div>
+    <span class="st" id="stxt">未连接</span>
+  </div>
+  <button class="btn btn-p" id="btnC" onclick="doConnect()">连接设备</button>
+  <button class="btn btn-d" id="btnD" onclick="doDisconnect()" style="display:none">断开</button>
+</div>
+
+<div class="tabs" id="tabBar" style="display:none">
+  <button class="tab active" onclick="switchTab(0)">电子书</button>
+  <button class="tab" onclick="switchTab(1)">音乐</button>
+  <button class="tab" onclick="switchTab(2)">图片</button>
+</div>
+
+<div class="card" id="fCard" style="display:none">
+  <!-- 电子书面板 -->
+  <div class="panel" id="panel0">
+    <label class="file-label" for="fInput0">选择 TXT 电子书</label>
+    <input type="file" id="fInput0" accept=".txt" onchange="onFile(event,0)">
+    <div class="info" id="fInfo0"></div>
+    <button class="btn btn-g" id="btnS0" onclick="sendFile(0)" disabled>发送到设备</button>
+    <p class="hint">保存到 /spiffs/ebooks/</p>
+  </div>
+
+  <!-- 音乐面板 -->
+  <div class="panel" id="panel1">
+    <label class="file-label" for="fInput1">选择音频文件 (WAV/MP3)</label>
+    <input type="file" id="fInput1" accept=".wav,.mp3" onchange="onFile(event,1)">
+    <div class="info" id="fInfo1"></div>
+    <button class="btn btn-g" id="btnS1" onclick="sendFile(1)" disabled>发送到设备</button>
+    <p class="hint">保存到 /spiffs/music/</p>
+  </div>
+
+  <!-- 图片面板 -->
+  <div class="panel" id="panel2">
+    <label class="file-label" for="fInput2">选择图片 (BMP/JPG/PNG)</label>
+    <input type="file" id="fInput2" accept=".bmp,.jpg,.jpeg,.png" onchange="onFile(event,2)">
+    <div class="info" id="fInfo2"></div>
+    <button class="btn btn-g" id="btnS2" onclick="sendFile(2)" disabled>发送到设备</button>
+    <p class="hint">保存到 /spiffs/images/</p>
+  </div>
+
+  <div class="progress" id="pDiv" style="display:none">
+    <div class="pbar"><div class="pfill" id="pFill"></div></div>
+    <div class="ptxt" id="pTxt">0%</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="log" id="log">等待操作...
+</div>
+</div>
+
+<script>
+// 统一 BLE UUID (复用 ebook 协议)
+const SVC="a0e80001-2b4d-4c9a-b5c1-9e3d6f0a5b21";
+const NAME="a0e80010-2b4d-4c9a-b5c1-9e3d6f0a5b21";
+const DATA="a0e80020-2b4d-4c9a-b5c1-9e3d6f0a5b21";
+const CTRL="a0e80030-2b4d-4c9a-b5c1-9e3d6f0a5b21";
+
+// 各类型的目标目录前缀
+const DIRS=["ebooks/","music/","images/"];
+
+let dev=null,gatt=null,nameC=null,dataC=null,ctrlC=null;
+let fileData=[null,null,null],fileName=["","",""],sending=false;
+let curTab=0;
+
+function log(m){const e=document.getElementById("log");const t=new Date().toLocaleTimeString();e.textContent+=`[${t}] ${m}
+`;e.scrollTop=e.scrollHeight}
+function setS(t,c){document.getElementById("stxt").textContent=t;const d=document.getElementById("dot");d.className="dot"+(c==="on"?" on":c==="rx"?" rx":"");}
+
+function switchTab(idx){
+  curTab=idx;
+  document.querySelectorAll(".tab").forEach((t,i)=>t.classList.toggle("active",i===idx));
+  document.querySelectorAll(".panel").forEach((p,i)=>p.style.display=i===idx?"":"none");
+}
+
+async function doConnect(){
+  try{
+    log("搜索 AI-Passport...");
+    dev=await navigator.bluetooth.requestDevice({filters:[{name:"AI-Passport"}],optionalServices:[SVC]});
+    log("已选择: "+dev.name);
+    dev.addEventListener("gattserverdisconnected",()=>{log("断开");setS("未连接","");document.getElementById("btnC").style.display="";document.getElementById("btnD").style.display="none";document.getElementById("fCard").style.display="none";document.getElementById("tabBar").style.display="none";sending=false;});
+    gatt=await dev.gatt.connect();
+    const svc=await gatt.getPrimaryService(SVC);
+    nameC=await svc.getCharacteristic(NAME);
+    dataC=await svc.getCharacteristic(DATA);
+    ctrlC=await svc.getCharacteristic(CTRL);
+    document.getElementById("btnC").style.display="none";
+    document.getElementById("btnD").style.display="";
+    document.getElementById("fCard").style.display="";
+    document.getElementById("tabBar").style.display="flex";
+    switchTab(0);
+    setS("已连接","on");
+    log("连接成功！选择文件类型");
+  }catch(e){log("连接失败: "+e.message)}
+}
+function doDisconnect(){if(dev&&dev.gatt.connected)dev.gatt.disconnect()}
+
+function onFile(ev,idx){
+  const f=ev.target.files[0];if(!f)return;
+  fileName[idx]=f.name;
+  log("文件: "+f.name+" ("+f.size+" 字节)");
+  const r=new FileReader();
+  r.onload=function(e){
+    fileData[idx]=new Uint8Array(e.target.result);
+    document.getElementById("fInfo"+idx).textContent=f.size+" 字节";
+    document.getElementById("btnS"+idx).disabled=false;
+    log("文件已加载");
+  };
+  r.readAsArrayBuffer(f);
+}
+
+async function sendFile(idx){
+  if(!ctrlC||!fileData[idx])return;
+  sending=true;
+  document.getElementById("btnS"+idx).disabled=true;
+  document.getElementById("btnS"+idx).textContent="发送中...";
+  document.getElementById("pDiv").style.display="";
+  setS("发送中","rx");
+
+  try{
+    const remoteName=DIRS[idx]+fileName[idx];
+    await nameC.writeValue(new TextEncoder().encode(remoteName));
+    log("已发送文件名: "+remoteName);
+
+    const sz=fileData[idx].length;
+    const startCmd=new Uint8Array([0x01,sz&0xFF,(sz>>8)&0xFF,(sz>>16)&0xFF,(sz>>24)&0xFF]);
+    await ctrlC.writeValue(startCmd);
+    log("开始发送, "+sz+" 字节");
+
+    const CHUNK=200;
+    for(let i=0;i<fileData[idx].length;i+=CHUNK){
+      const chunk=fileData[idx].slice(i,Math.min(i+CHUNK,fileData[idx].length));
+      await dataC.writeValue(chunk);
+      const pct=Math.min(100,Math.round((i+chunk.length)/fileData[idx].length*100));
+      document.getElementById("pFill").style.width=pct+"%";
+      document.getElementById("pTxt").textContent=pct+"% ("+(i+chunk.length)+"/"+fileData[idx].length+")";
+      if(i%1000===0)await new Promise(r=>setTimeout(r,10));
+    }
+
+    await ctrlC.writeValue(new Uint8Array([0x02]));
+    setS("发送完成","on");
+    document.getElementById("pTxt").textContent="100% 完成!";
+    log("传输完成！");
+  }catch(e){
+    log("发送失败: "+e.message);
+    try{await ctrlC.writeValue(new Uint8Array([0x03]))}catch(x){}
+    setS("发送失败","");sending=false;
+    document.getElementById("btnS"+idx).disabled=false;
+    document.getElementById("btnS"+idx).textContent="重新发送";
+  }
+}
+</script>
+</body>
+</html>

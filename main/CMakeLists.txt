@@ -17,6 +17,7 @@ idf_component_register(
          "bg_img.c"
          "audio_player.c"
          "demo_music.c"
+         "demo_image.c"
     INCLUDE_DIRS "."
     REQUIRES bsp spiffs nvs_flash esp_wifi esp_netif esp_event bt json mbedtls esp_http_client
 )

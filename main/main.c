@@ -30,6 +30,7 @@ static const demo_entry_t DEMOS[] = {
     { "关于",   demo_about_enter,   demo_about_exit,   demo_about_key   },
     { "蓝牙传书", demo_ble_ebook_enter, demo_ble_ebook_exit, demo_ble_ebook_key },
     { "蓝牙音乐", demo_music_enter, demo_music_exit, demo_music_key },
+    { "图片浏览", demo_image_enter, demo_image_exit, demo_image_key },
 };
 #define DEMO_COUNT (sizeof(DEMOS) / sizeof(DEMOS[0]))
 
@@ -187,6 +188,7 @@ void app_main(void) {
     s_ok[3] = true;                                   // 关于
     s_ok[4] = true;                                   // 蓝牙传书
     s_ok[5] = s_spiffs_ok;                            // 蓝牙音乐
+    s_ok[6] = s_spiffs_ok;                            // 图片浏览
 
     ESP_ERROR_CHECK(bsp_button_init(on_key, NULL));   // 按键(全局必需)
 
