@@ -1,17 +1,14 @@
-// main/ble_ebook.c —— BLE 整书传输服务（NimBLE GATT）。
+// main/ble_ebook.c —— BLE 整书传输服务（Bluedroid GATT）。
 // 手机发送文件名+内容，设备存到 SPIFFS /ebooks/ 目录。
 #include "ble_ebook.h"
 #include "esp_log.h"
 #include <string.h>
 #include <stdio.h>
-#include "esp_nimble_hci.h"
-#include "nimble/nimble_port.h"
-#include "nimble/nimble_port_freertos.h"
-#include "host/ble_hs.h"
-#include "host/ble_gap.h"
-#include "host/util/util.h"
-#include "services/gap/ble_svc_gap.h"
-#include "services/gatt/ble_svc_gatt.h"
+#include "esp_bt.h"
+#include "esp_bt_main.h"
+#include "esp_gap_ble_api.h"
+#include "esp_gatts_api.h"
+#include "esp_gatt_defs.h"
 #include "esp_system.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
@@ -20,28 +17,49 @@
 static const char *TAG = "ble_ebook";
 static const char *DEV_NAME = "AI-Passport";
 #define EBOOK_DIR "/spiffs/ebooks"
+#define APP_ID_EBOOK 0x02
 
-// UUID: A0E80001 / 0x10=文件名 0x20=内容 0x30=控制
-static const ble_uuid128_t s_svc_uuid = BLE_UUID128_INIT(
+// ---- 128-bit UUID (little-endian) ----
+// 服务: A0E80001-2B4D-4C9A-B5C1-9E3D6F0A5B21
+static const uint8_t svc_uuid[16] = {
     0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
-    0x9a,0x4c,0x4d,0x2b,0x01,0x00,0xe8,0xa0);
-static const ble_uuid128_t s_name_uuid = BLE_UUID128_INIT(
+    0x9a,0x4c,0x4d,0x2b,0x01,0x00,0xe8,0xa0
+};
+static const uint8_t name_uuid[16] = {
     0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
-    0x9a,0x4c,0x4d,0x2b,0x10,0x00,0xe8,0xa0);
-static const ble_uuid128_t s_data_uuid = BLE_UUID128_INIT(
+    0x9a,0x4c,0x4d,0x2b,0x10,0x00,0xe8,0xa0
+};
+static const uint8_t data_uuid[16] = {
     0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
-    0x9a,0x4c,0x4d,0x2b,0x20,0x00,0xe8,0xa0);
-static const ble_uuid128_t s_ctrl_uuid = BLE_UUID128_INIT(
+    0x9a,0x4c,0x4d,0x2b,0x20,0x00,0xe8,0xa0
+};
+static const uint8_t ctrl_uuid[16] = {
     0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
-    0x9a,0x4c,0x4d,0x2b,0x30,0x00,0xe8,0xa0);
+    0x9a,0x4c,0x4d,0x2b,0x30,0x00,0xe8,0xa0
+};
 
-static uint16_t s_name_val_h, s_data_val_h, s_ctrl_val_h;
+// ---- 属性表索引 ----
+enum {
+    IDX_SVC,
+    IDX_CHAR_NAME_DECL,
+    IDX_CHAR_NAME_VAL,
+    IDX_CHAR_DATA_DECL,
+    IDX_CHAR_DATA_VAL,
+    IDX_CHAR_CTRL_DECL,
+    IDX_CHAR_CTRL_VAL,
+    EBOOK_IDX_NB
+};
+
+static uint16_t handle_table[EBOOK_IDX_NB];
+static esp_gatt_if_t s_gatts_if;
+
+#define CMD_FILE_START  0x01
+#define CMD_FILE_END    0x02
+#define CMD_FILE_ABORT  0x03
+
 static volatile bool s_running = false;
-static bool s_nimble_inited = false;
-static uint16_t s_conn_h = BLE_HS_CONN_HANDLE_NONE;
-static uint8_t s_own_addr_type;
-
-static ble_ebook_state_t s_state = BLE_EBOOK_IDLE;
+static uint16_t s_conn_id = 0xFFFF;
+static volatile ble_ebook_state_t s_state = BLE_EBOOK_IDLE;
 static volatile ble_ebook_state_cb_t s_state_cb = NULL;
 static volatile ble_ebook_progress_cb_t s_progress_cb = NULL;
 
@@ -50,29 +68,77 @@ static char s_filename[128];
 static uint32_t s_received = 0;
 static uint32_t s_filesize = 0;
 
-#define CMD_FILE_START  0x01   // 后跟4字节文件大小
-#define CMD_FILE_END    0x02
-#define CMD_FILE_ABORT  0x03
+// ---- 标准 UUID ----
+static const uint16_t primary_service_uuid = ESP_GATT_UUID_PRI_SERVICE;
+static const uint16_t char_declaration_uuid = ESP_GATT_UUID_CHAR_DECLARE;
 
+// ---- 属性表 ----
+static const esp_gatts_attr_db_t gatt_db[EBOOK_IDX_NB] = {
+    [IDX_SVC] = {
+        .attr_control = { .auto_rsp = ESP_GATT_AUTO_RSP },
+        .att_desc = {
+            .uuid_length = ESP_UUID_LEN_16, .uuid_p = (uint8_t *)&primary_service_uuid,
+            .perm = ESP_GATT_PERM_READ,
+            .max_length = sizeof(svc_uuid), .length = sizeof(svc_uuid), .value = (uint8_t *)svc_uuid
+        }
+    },
+    [IDX_CHAR_NAME_DECL] = {
+        .attr_control = { .auto_rsp = ESP_GATT_AUTO_RSP },
+        .att_desc = {
+            .uuid_length = ESP_UUID_LEN_16, .uuid_p = (uint8_t *)&char_declaration_uuid,
+            .perm = ESP_GATT_PERM_READ,
+            .max_length = 1, .length = 1,
+            .value = (uint8_t *)(uint8_t[]){ ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_WRITE }
+        }
+    },
+    [IDX_CHAR_NAME_VAL] = {
+        .attr_control = { .auto_rsp = ESP_GATT_RSP_BY_APP },
+        .att_desc = {
+            .uuid_length = ESP_UUID_LEN_128, .uuid_p = (uint8_t *)name_uuid,
+            .perm = ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+            .max_length = 128, .length = 0, .value = NULL
+        }
+    },
+    [IDX_CHAR_DATA_DECL] = {
+        .attr_control = { .auto_rsp = ESP_GATT_AUTO_RSP },
+        .att_desc = {
+            .uuid_length = ESP_UUID_LEN_16, .uuid_p = (uint8_t *)&char_declaration_uuid,
+            .perm = ESP_GATT_PERM_READ,
+            .max_length = 1, .length = 1,
+            .value = (uint8_t *)(uint8_t[]){ ESP_GATT_CHAR_PROP_BIT_WRITE }
+        }
+    },
+    [IDX_CHAR_DATA_VAL] = {
+        .attr_control = { .auto_rsp = ESP_GATT_RSP_BY_APP },
+        .att_desc = {
+            .uuid_length = ESP_UUID_LEN_128, .uuid_p = (uint8_t *)data_uuid,
+            .perm = ESP_GATT_PERM_WRITE,
+            .max_length = 512, .length = 0, .value = NULL
+        }
+    },
+    [IDX_CHAR_CTRL_DECL] = {
+        .attr_control = { .auto_rsp = ESP_GATT_AUTO_RSP },
+        .att_desc = {
+            .uuid_length = ESP_UUID_LEN_16, .uuid_p = (uint8_t *)&char_declaration_uuid,
+            .perm = ESP_GATT_PERM_READ,
+            .max_length = 1, .length = 1,
+            .value = (uint8_t *)(uint8_t[]){ ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_WRITE }
+        }
+    },
+    [IDX_CHAR_CTRL_VAL] = {
+        .attr_control = { .auto_rsp = ESP_GATT_RSP_BY_APP },
+        .att_desc = {
+            .uuid_length = ESP_UUID_LEN_128, .uuid_p = (uint8_t *)ctrl_uuid,
+            .perm = ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+            .max_length = 8, .length = 0, .value = NULL
+        }
+    },
+};
+
+// ---- 状态管理 ----
 static void set_state(ble_ebook_state_t st) {
     s_state = st;
     if (s_running && s_state_cb) s_state_cb(st);
-}
-
-static inline size_t strlcpy_ebk(char *d, const char *s, size_t n) {
-    if (n == 0) return strlen(s);
-    size_t l = strlen(s);
-    if (l >= n) l = n - 1;
-    memcpy(d, s, l); d[l] = 0;
-    return strlen(s);
-}
-
-static int write_to_buf(struct ble_gatt_access_ctxt *ctxt, char *buf, int bufsz) {
-    uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
-    if (len > (uint16_t)bufsz - 1) len = (uint16_t)bufsz - 1;
-    if (ble_hs_mbuf_to_flat(ctxt->om, buf, len, &len) != 0) return -1;
-    buf[len] = 0;
-    return 0;
 }
 
 static void close_file(void) {
@@ -82,7 +148,13 @@ static void close_file(void) {
 static bool open_file(const char *name) {
     close_file();
     char path[192];
-    snprintf(path, sizeof(path), "%s/%s", EBOOK_DIR, name);
+    // 如果文件名包含路径(如 music/xxx.mp3),则保存到 /spiffs/<路径>
+    // 否则保存到 /spiffs/ebooks/<文件名>
+    if (strchr(name, '/')) {
+        snprintf(path, sizeof(path), "/spiffs/%s", name);
+    } else {
+        snprintf(path, sizeof(path), "%s/%s", EBOOK_DIR, name);
+    }
     s_fp = fopen(path, "wb");
     if (!s_fp) {
         ESP_LOGE(TAG, "无法创建文件: %s", path);
@@ -92,192 +164,190 @@ static bool open_file(const char *name) {
     return true;
 }
 
-// 特征 0x10: 文件名 (Write)
-static int cb_name(uint16_t conn, uint16_t attr,
-                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)conn; (void)attr; (void)arg;
-    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR)
-        return os_mbuf_append(ctxt->om, s_filename, strlen(s_filename));
-    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return 0;
-    char buf[128] = {0};
-    if (write_to_buf(ctxt, buf, sizeof(buf)) != 0)
-        return BLE_ATT_ERR_INSUFFICIENT_RES;
-    // 去掉路径前缀，只保留文件名
-    const char *p = strrchr(buf, '/');
-    if (!p) p = strrchr(buf, '\\');
-    if (p) p++; else p = buf;
-    // 安全检查：拒绝路径遍历
-    if (strstr(p, "..") || strchr(p, '/') || strchr(p, '\\')) {
-        ESP_LOGW(TAG, "非法文件名: %s", p);
-        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+// ---- GAP 事件 ----
+static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
+    switch (event) {
+    case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
+        if (param->adv_start_cmpl.status != ESP_BT_STATUS_SUCCESS)
+            ESP_LOGE(TAG, "广播启动失败: %d", param->adv_start_cmpl.status);
+        else
+            ESP_LOGI(TAG, "广播中: %s (堆余 %lu KB)", DEV_NAME,
+                (unsigned long)esp_get_free_heap_size() / 1024);
+        break;
+    default: break;
     }
-    strlcpy_ebk(s_filename, p, sizeof(s_filename));
-    ESP_LOGI(TAG, "文件名: %s", s_filename);
-    return 0;
 }
 
-// 特征 0x20: 文件内容 (Write)
-static int cb_data(uint16_t conn, uint16_t attr,
-                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)conn; (void)attr; (void)arg;
-    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return 0;
-    if (!s_fp) return BLE_ATT_ERR_UNLIKELY;
-    uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
-    if (len == 0) return 0;
-    uint8_t buf[512];
-    if (len > sizeof(buf)) len = sizeof(buf);
-    if (ble_hs_mbuf_to_flat(ctxt->om, buf, len, &len) != 0)
-        return BLE_ATT_ERR_INSUFFICIENT_RES;
-    size_t written = fwrite(buf, 1, len, s_fp);
-    if (written != len) {
-        ESP_LOGE(TAG, "写入失败: %zu/%u", written, len);
-        close_file();
-        set_state(BLE_EBOOK_ERROR);
-        return BLE_ATT_ERR_UNLIKELY;
-    }
-    s_received += written;
-    if (s_running && s_progress_cb) s_progress_cb(s_received, s_filesize);
-    return 0;
-}
-
-// 特征 0x30: 控制 (Write)
-static int cb_ctrl(uint16_t conn, uint16_t attr,
-                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)conn; (void)attr; (void)arg;
-    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-        uint8_t st = s_state;
-        return os_mbuf_append(ctxt->om, &st, 1);
-    }
-    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return 0;
-    uint8_t buf[8];
-    uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
-    if (len < 1 || len > 8) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
-    if (ble_hs_mbuf_to_flat(ctxt->om, buf, len, NULL) != 0)
-        return BLE_ATT_ERR_INSUFFICIENT_RES;
-    uint8_t cmd = buf[0];
-    switch (cmd) {
-    case CMD_FILE_START:
-        s_received = 0;
-        s_filesize = 0;
-        if (len >= 5) {
-            s_filesize = buf[1]|(buf[2]<<8)|(buf[3]<<16)|(buf[4]<<24);
-        }
-        ESP_LOGI(TAG, "开始接收, 预计 %lu 字节", (unsigned long)s_filesize);
-        if (s_filename[0]) {
-            if (open_file(s_filename)) {
-                set_state(BLE_EBOOK_RECEIVING);
-            } else {
-                set_state(BLE_EBOOK_ERROR);
-            }
-        }
-        break;
-    case CMD_FILE_END:
-        ESP_LOGI(TAG, "传输完成, 共 %lu 字节", (unsigned long)s_received);
-        close_file();
-        set_state(BLE_EBOOK_DONE);
-        break;
-    case CMD_FILE_ABORT:
-        ESP_LOGI(TAG, "传输中止");
-        close_file();
-        // 删除不完整文件
-        if (s_filename[0]) {
-            char path[192];
-            snprintf(path, sizeof(path), "%s/%s", EBOOK_DIR, s_filename);
-            remove(path);
-        }
-        set_state(BLE_EBOOK_IDLE);
-        break;
-    default:
-        ESP_LOGW(TAG, "未知命令 0x%02x", cmd);
-        break;
-    }
-    return 0;
-}
-
-static const struct ble_gatt_svc_def s_svcs[] = {
-    { .type = BLE_GATT_SVC_TYPE_PRIMARY,
-      .uuid = &s_svc_uuid.u,
-      .characteristics = (struct ble_gatt_chr_def[]) {
-          { .uuid = &s_name_uuid.u, .access_cb = cb_name,
-            .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
-            .val_handle = &s_name_val_h },
-          { .uuid = &s_data_uuid.u, .access_cb = cb_data,
-            .flags = BLE_GATT_CHR_F_WRITE,
-            .val_handle = &s_data_val_h },
-          { .uuid = &s_ctrl_uuid.u, .access_cb = cb_ctrl,
-            .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
-            .val_handle = &s_ctrl_val_h },
-          { 0 } } },
-    { 0 }
+static esp_ble_adv_params_t adv_params = {
+    .adv_int_min = 0x20, .adv_int_max = 0x40,
+    .adv_type = ADV_TYPE_IND, .own_addr_type = BLE_ADDR_TYPE_PUBLIC,
+    .channel_map = ADV_CHNL_ALL, .adv_filter_policy = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY,
 };
 
-static void adv_restart(void);
-static int gap_event_cb(struct ble_gap_event *event, void *arg);
+static uint8_t raw_adv_data[] = {
+    0x02, 0x01, 0x06,
+    0x11, 0x07,
+    0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
+    0x9a,0x4c,0x4d,0x2b,0x01,0x00,0xe8,0xa0,
+    0x0C, 0x09,
+    'A','I','-','P','a','s','s','p','o','r','t'
+};
 
-static void adv_restart(void) {
-    struct ble_hs_adv_fields f;
-    memset(&f, 0, sizeof(f));
-    f.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    f.name = (const uint8_t *)DEV_NAME;
-    f.name_len = strlen(DEV_NAME);
-    f.name_is_complete = 1;
-    ble_gap_adv_set_fields(&f);
-
-    struct ble_hs_adv_fields r;
-    memset(&r, 0, sizeof(r));
-    r.uuids128 = &s_svc_uuid;
-    r.num_uuids128 = 1;
-    r.uuids128_is_complete = 1;
-    ble_gap_adv_rsp_set_fields(&r);
-
-    struct ble_gap_adv_params p;
-    memset(&p, 0, sizeof(p));
-    p.conn_mode = BLE_GAP_CONN_MODE_UND;
-    p.disc_mode = BLE_GAP_DISC_MODE_GEN;
-    ble_gap_adv_start(s_own_addr_type, NULL, BLE_HS_FOREVER, &p, gap_event_cb, NULL);
-    ESP_LOGI(TAG, "广播中: %s", DEV_NAME);
+static void start_advertising(void) {
+    esp_ble_gap_config_adv_data_raw(raw_adv_data, sizeof(raw_adv_data));
+    esp_ble_gap_start_advertising(&adv_params);
 }
 
-static int gap_event_cb(struct ble_gap_event *event, void *arg) {
-    (void)arg;
-    switch (event->type) {
-    case BLE_GAP_EVENT_CONNECT:
-        if (event->connect.status == 0) {
-            s_conn_h = event->connect.conn_handle;
-            ESP_LOGI(TAG, "手机已连接");
-            set_state(BLE_EBOOK_CONNECTED);
+// ---- GATTS 事件 ----
+static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
+                                 esp_ble_gatts_cb_param_t *param) {
+    switch (event) {
+    case ESP_GATTS_REG_EVT:
+        if (param->reg.status == ESP_GATT_OK) s_gatts_if = gatts_if;
+        esp_ble_gap_set_device_name(DEV_NAME);
+        esp_ble_gatts_create_attr_tab(gatt_db, gatts_if, EBOOK_IDX_NB, 0);
+        break;
+
+    case ESP_GATTS_CREAT_ATTR_TAB_EVT:
+        if (param->add_attr_tab.status == ESP_GATT_OK &&
+            param->add_attr_tab.num_handle == EBOOK_IDX_NB) {
+            memcpy(handle_table, param->add_attr_tab.handles, sizeof(handle_table));
+            esp_ble_gatts_start_service(handle_table[IDX_SVC]);
+            start_advertising();
         }
-        return 0;
-    case BLE_GAP_EVENT_DISCONNECT:
-        s_conn_h = BLE_HS_CONN_HANDLE_NONE;
+        break;
+
+    case ESP_GATTS_START_EVT:
+        ESP_LOGI(TAG, "服务已启动");
+        break;
+
+    case ESP_GATTS_CONNECT_EVT:
+        s_conn_id = param->connect.conn_id;
+        ESP_LOGI(TAG, "手机已连接, conn_id=%d", s_conn_id);
+        set_state(BLE_EBOOK_CONNECTED);
+        break;
+
+    case ESP_GATTS_DISCONNECT_EVT:
+        s_conn_id = 0xFFFF;
         ESP_LOGI(TAG, "手机断开");
         close_file();
-        if (s_running) { set_state(BLE_EBOOK_IDLE); adv_restart(); }
-        return 0;
-    case BLE_GAP_EVENT_ADV_COMPLETE:
-        if (s_running) adv_restart();
-        return 0;
-    case BLE_GAP_EVENT_MTU:
-        ESP_LOGI(TAG, "MTU %d", event->mtu.value);
-        return 0;
-    default: return 0;
+        if (s_running) { set_state(BLE_EBOOK_IDLE); start_advertising(); }
+        break;
+
+    case ESP_GATTS_MTU_EVT:
+        ESP_LOGI(TAG, "MTU: %d", param->mtu.mtu);
+        break;
+
+    case ESP_GATTS_READ_EVT: {
+        uint16_t h = param->read.handle;
+        if (h == handle_table[IDX_CHAR_NAME_VAL]) {
+            esp_ble_gatts_set_attr_value(h, strlen(s_filename), (uint8_t *)s_filename);
+            esp_gatt_rsp_t rsp;
+            memset(&rsp, 0, sizeof(rsp));
+            rsp.attr_value.len = strlen(s_filename);
+            memcpy(rsp.attr_value.value, s_filename, rsp.attr_value.len);
+            esp_ble_gatts_send_response(gatts_if, param->read.conn_id, param->read.trans_id,
+                                         ESP_GATT_OK, &rsp);
+        } else if (h == handle_table[IDX_CHAR_CTRL_VAL]) {
+            uint8_t st = s_state;
+            esp_ble_gatts_set_attr_value(h, 1, &st);
+            esp_gatt_rsp_t rsp;
+            memset(&rsp, 0, sizeof(rsp));
+            rsp.attr_value.len = 1;
+            rsp.attr_value.value[0] = st;
+            esp_ble_gatts_send_response(gatts_if, param->read.conn_id, param->read.trans_id,
+                                         ESP_GATT_OK, &rsp);
+        }
+        break;
+    }
+
+    case ESP_GATTS_WRITE_EVT: {
+        if (param->write.is_prep) break;
+        uint16_t h = param->write.handle;
+        uint16_t len = param->write.value_len;
+        uint8_t *val = param->write.value;
+
+        if (h == handle_table[IDX_CHAR_NAME_VAL]) {
+            // 文件名 (支持路径前缀如 music/xxx.mp3)
+            const char *p = (const char *)val;
+            // 路径遍历检查
+            if (strstr(p, "..")) {
+                ESP_LOGW(TAG, "非法文件名: %s", p);
+            } else {
+                memset(s_filename, 0, sizeof(s_filename));
+                size_t n = len < sizeof(s_filename) - 1 ? len : sizeof(s_filename) - 1;
+                memcpy(s_filename, p, n);
+                s_filename[n] = 0;
+                ESP_LOGI(TAG, "文件名: %s", s_filename);
+            }
+        } else if (h == handle_table[IDX_CHAR_DATA_VAL]) {
+            // 文件内容
+            if (!s_fp) {
+                if (param->write.need_rsp)
+                    esp_ble_gatts_send_response(gatts_if, param->write.conn_id,
+                                                 param->write.trans_id, ESP_GATT_ERR_UNLIKELY, NULL);
+                break;
+            }
+            size_t written = fwrite(val, 1, len, s_fp);
+            if (written != len) {
+                ESP_LOGE(TAG, "写入失败: %zu/%u", written, len);
+                close_file();
+                set_state(BLE_EBOOK_ERROR);
+            } else {
+                s_received += written;
+                if (s_running && s_progress_cb) s_progress_cb(s_received, s_filesize);
+            }
+        } else if (h == handle_table[IDX_CHAR_CTRL_VAL]) {
+            if (len < 1) break;
+            uint8_t cmd = val[0];
+            switch (cmd) {
+            case CMD_FILE_START:
+                s_received = 0;
+                s_filesize = 0;
+                if (len >= 5) {
+                    s_filesize = val[1]|(val[2]<<8)|(val[3]<<16)|(val[4]<<24);
+                }
+                ESP_LOGI(TAG, "开始接收, 预计 %lu 字节", (unsigned long)s_filesize);
+                if (s_filename[0]) {
+                    if (open_file(s_filename)) set_state(BLE_EBOOK_RECEIVING);
+                    else set_state(BLE_EBOOK_ERROR);
+                }
+                break;
+            case CMD_FILE_END:
+                ESP_LOGI(TAG, "传输完成, 共 %lu 字节", (unsigned long)s_received);
+                close_file();
+                set_state(BLE_EBOOK_DONE);
+                break;
+            case CMD_FILE_ABORT:
+                ESP_LOGI(TAG, "传输中止");
+                close_file();
+                if (s_filename[0]) {
+                    char path[192];
+                    if (strchr(s_filename, '/'))
+                        snprintf(path, sizeof(path), "/spiffs/%s", s_filename);
+                    else
+                        snprintf(path, sizeof(path), "%s/%s", EBOOK_DIR, s_filename);
+                    remove(path);
+                }
+                set_state(BLE_EBOOK_IDLE);
+                break;
+            default:
+                ESP_LOGW(TAG, "未知命令 0x%02x", cmd);
+                break;
+            }
+        }
+        if (param->write.need_rsp) {
+            esp_ble_gatts_send_response(gatts_if, param->write.conn_id,
+                                         param->write.trans_id, ESP_GATT_OK, NULL);
+        }
+        break;
+    }
+
+    default: break;
     }
 }
 
-static void on_sync(void) {
-    ble_hs_util_ensure_addr(0);
-    ble_hs_id_infer_auto(0, &s_own_addr_type);
-    adv_restart();
-}
-
-static void on_reset(int reason) { ESP_LOGW(TAG, "BLE 复位 %d", reason); }
-
-static void host_task(void *param) {
-    (void)param;
-    nimble_port_run();
-    nimble_port_freertos_deinit();
-}
-
+// ---- 公共 API ----
 bool ble_ebook_start(void) {
     if (s_running) return true;
     s_received = 0;
@@ -285,24 +355,29 @@ bool ble_ebook_start(void) {
     s_filename[0] = 0;
     close_file();
 
-    if (s_nimble_inited) {
-        nimble_port_deinit();
-        s_nimble_inited = false;
-    }
-    esp_err_t err = nimble_port_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "nimble init 失败 %s", esp_err_to_name(err));
-        return false;
-    }
-    s_nimble_inited = true;
-    ble_svc_gap_device_name_set(DEV_NAME);
-    ble_svc_gap_init();
-    ble_svc_gatt_init();
-    ble_gatts_count_cfg(s_svcs);
-    ble_gatts_add_svcs(s_svcs);
-    ble_hs_cfg.sync_cb = on_sync;
-    ble_hs_cfg.reset_cb = on_reset;
-    nimble_port_freertos_init(host_task);
+    esp_err_t err = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+        ESP_LOGW(TAG, "释放 Classic BT 内存: %s", esp_err_to_name(err));
+
+    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+    err = esp_bt_controller_init(&bt_cfg);
+    if (err != ESP_OK) { ESP_LOGE(TAG, "BT 控制器初始化失败: %s", esp_err_to_name(err)); return false; }
+
+    err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
+    if (err != ESP_OK) { ESP_LOGE(TAG, "BT 控制器使能失败: %s", esp_err_to_name(err)); return false; }
+
+    err = esp_bluedroid_init();
+    if (err != ESP_OK) { ESP_LOGE(TAG, "Bluedroid 初始化失败: %s", esp_err_to_name(err)); return false; }
+
+    err = esp_bluedroid_enable();
+    if (err != ESP_OK) { ESP_LOGE(TAG, "Bluedroid 使能失败: %s", esp_err_to_name(err)); return false; }
+
+    esp_ble_gatts_register_callback(gatts_event_handler);
+    esp_ble_gap_register_callback(gap_event_handler);
+    esp_ble_gatt_set_local_mtu(512);
+
+    esp_ble_gatts_app_register(APP_ID_EBOOK);
+
     s_running = true;
     set_state(BLE_EBOOK_IDLE);
     ESP_LOGI(TAG, "BLE 电子书启动, 堆 %lu KB",
@@ -314,9 +389,13 @@ void ble_ebook_stop(void) {
     if (!s_running) return;
     s_running = false;
     close_file();
-    if (ble_gap_adv_active()) ble_gap_adv_stop();
-    s_conn_h = BLE_HS_CONN_HANDLE_NONE;
+    esp_ble_gap_stop_advertising();
+    s_conn_id = 0xFFFF;
     s_state = BLE_EBOOK_IDLE;
+    esp_bluedroid_disable();
+    esp_bluedroid_deinit();
+    esp_bt_controller_disable();
+    esp_bt_controller_deinit();
     ESP_LOGI(TAG, "BLE 电子书停止");
 }
 

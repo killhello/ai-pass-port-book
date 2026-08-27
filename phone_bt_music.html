@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI-Passport 蓝牙音乐</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,"Microsoft YaHei",sans-serif;background:#f0f2f5;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px}
+h1{color:#333;margin-bottom:4px;font-size:20px}
+.sub{color:#888;margin-bottom:16px;font-size:12px}
+.card{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);padding:14px;width:100%;max-width:380px;margin-bottom:10px}
+.status-bar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.dot{width:10px;height:10px;border-radius:50%;background:#ccc;flex-shrink:0}
+.dot.on{background:#4caf50}.dot.rx{background:#ff9800}
+.st{font-size:13px;color:#666}
+.btn{display:block;width:100%;padding:11px;border:none;border-radius:8px;font-size:15px;cursor:pointer;transition:.2s}
+.btn-p{background:#1976d2;color:#fff}.btn-p:disabled{background:#ccc}
+.btn-d{background:#e53935;color:#fff;margin-top:6px}
+.btn-g{background:#43a047;color:#fff;margin-top:6px}
+.file-label{display:block;padding:10px;background:#f5f5f5;border:2px dashed #ccc;border-radius:8px;text-align:center;cursor:pointer;color:#666;margin-top:8px}
+.file-label:hover{border-color:#1976d2;color:#1976d2}
+.info{font-size:12px;color:#888;margin-top:6px}
+.progress{margin-top:8px}
+.pbar{height:4px;background:#e0e0e0;border-radius:2px;overflow:hidden}
+.pfill{height:100%;background:#1976d2;width:0%;transition:width .2s}
+.ptxt{font-size:11px;color:#888;margin-top:3px}
+.log{background:#263238;color:#aed581;border-radius:8px;padding:10px;font-family:monospace;font-size:11px;max-height:180px;overflow-y:auto;word-break:break-all;white-space:pre-wrap}
+input[type=file]{display:none}
+.hint{font-size:11px;color:#999;margin-top:8px;text-align:center}
+</style>
+</head>
+<body>
+<h1>AI-Passport 蓝牙音乐</h1>
+<p class="sub">通过 BLE 发送 WAV/MP3 音频到设备播放</p>
+
+<div class="card">
+  <div class="status-bar">
+    <div class="dot" id="dot"></div>
+    <span class="st" id="stxt">未连接</span>
+  </div>
+  <button class="btn btn-p" id="btnC" onclick="doConnect()">连接设备</button>
+  <button class="btn btn-d" id="btnD" onclick="doDisconnect()" style="display:none">断开</button>
+</div>
+
+<div class="card" id="fCard" style="display:none">
+  <label class="file-label" for="fInput">选择音频文件 (WAV/MP3)</label>
+  <input type="file" id="fInput" accept=".wav,.mp3" onchange="onFile(event)">
+  <div class="info" id="fInfo"></div>
+  <button class="btn btn-g" id="btnS" onclick="sendFile()" disabled>发送到设备</button>
+  <div class="progress" id="pDiv" style="display:none">
+    <div class="pbar"><div class="pfill" id="pFill"></div></div>
+    <div class="ptxt" id="pTxt">0%</div>
+  </div>
+  <p class="hint">文件将保存到设备 /spiffs/music/ 目录</p>
+</div>
+
+<div class="card">
+  <div class="log" id="log">等待操作...
+</div>
+</div>
+
+<script>
+// 蓝牙音乐传输 UUID (复用 ble_ebook 协议)
+const SVC="a0e80001-2b4d-4c9a-b5c1-9e3d6f0a5b21";
+const NAME="a0e80010-2b4d-4c9a-b5c1-9e3d6f0a5b21";
+const DATA="a0e80020-2b4d-4c9a-b5c1-9e3d6f0a5b21";
+const CTRL="a0e80030-2b4d-4c9a-b5c1-9e3d6f0a5b21";
+
+let dev=null,gatt=null,nameC=null,dataC=null,ctrlC=null;
+let fileData=null,fileName="",sending=false;
+
+function log(m){const e=document.getElementById("log");const t=new Date().toLocaleTimeString();e.textContent+=`[${t}] ${m}
+`;e.scrollTop=e.scrollHeight}
+function setS(t,c){document.getElementById("stxt").textContent=t;const d=document.getElementById("dot");d.className="dot"+(c==="on"?" on":c==="rx"?" rx":"");}
+
+function isUtf8(bytes){
+  let i=0;while(i<bytes.length){
+    if(bytes[i]<0x80){i++;continue}
+    let cnt=0;let v=bytes[i];
+    if((v&0xE0)===0xC0)cnt=1;else if((v&0xF0)===0xE0)cnt=2;else if((v&0xF8)===0xF0)cnt=3;
+    else return false;
+    for(let j=0;j<cnt;j++){i++;if(i>=bytes.length||(bytes[i]&0xC0)!==0x80)return false}
+    i++}
+  return true}
+
+async function doConnect(){
+  try{
+    log("搜索 AI-Passport...");
+    dev=await navigator.bluetooth.requestDevice({filters:[{name:"AI-Passport"}],optionalServices:[SVC]});
+    log("已选择: "+dev.name);
+    dev.addEventListener("gattserverdisconnected",()=>{log("断开");setS("未连接","");document.getElementById("btnC").style.display="";document.getElementById("btnD").style.display="none";document.getElementById("fCard").style.display="none";sending=false;});
+    gatt=await dev.gatt.connect();
+    const svc=await gatt.getPrimaryService(SVC);
+    nameC=await svc.getCharacteristic(NAME);
+    dataC=await svc.getCharacteristic(DATA);
+    ctrlC=await svc.getCharacteristic(CTRL);
+    document.getElementById("btnC").style.display="none";
+    document.getElementById("btnD").style.display="";
+    document.getElementById("fCard").style.display="";
+    setS("已连接","on");
+    log("连接成功！选择音频文件");
+  }catch(e){log("连接失败: "+e.message)}
+}
+function doDisconnect(){if(dev&&dev.gatt.connected)dev.gatt.disconnect()}
+
+function onFile(ev){
+  const f=ev.target.files[0];if(!f)return;
+  fileName=f.name;
+  log("文件: "+f.name+" ("+f.size+" 字节)");
+  const r=new FileReader();
+  r.onload=function(e){
+    fileData=new Uint8Array(e.target.result);
+    document.getElementById("fInfo").textContent=f.size+" 字节";
+    document.getElementById("btnS").disabled=false;
+    log("文件已加载，点击发送");
+  };
+  r.readAsArrayBuffer(f);
+}
+
+async function sendFile(){
+  if(!ctrlC||!fileData)return;
+  sending=true;
+  document.getElementById("btnS").disabled=true;
+  document.getElementById("btnS").textContent="发送中...";
+  document.getElementById("pDiv").style.display="";
+  setS("发送中","rx");
+
+  try{
+    // 音乐文件保存到 /spiffs/music/ 目录
+    const musicName="music/"+fileName;
+    await nameC.writeValue(new TextEncoder().encode(musicName));
+    log("已发送文件名: "+musicName);
+
+    const sz=fileData.length;
+    const startCmd=new Uint8Array([0x01,sz&0xFF,(sz>>8)&0xFF,(sz>>16)&0xFF,(sz>>24)&0xFF]);
+    await ctrlC.writeValue(startCmd);
+    log("开始发送, "+sz+" 字节");
+
+    const CHUNK=200;
+    for(let i=0;i<fileData.length;i+=CHUNK){
+      const chunk=fileData.slice(i,Math.min(i+CHUNK,fileData.length));
+      await dataC.writeValue(chunk);
+      const pct=Math.min(100,Math.round((i+chunk.length)/fileData.length*100));
+      document.getElementById("pFill").style.width=pct+"%";
+      document.getElementById("pTxt").textContent=pct+"% ("+(i+chunk.length)+"/"+fileData.length+")";
+      if(i%1000===0)await new Promise(r=>setTimeout(r,10));
+    }
+
+    await ctrlC.writeValue(new Uint8Array([0x02]));
+    setS("发送完成","on");
+    document.getElementById("pTxt").textContent="100% 完成!";
+    log("传输完成！设备已保存音频");
+  }catch(e){
+    log("发送失败: "+e.message);
+    try{await ctrlC.writeValue(new Uint8Array([0x03]))}catch(x){}
+    setS("发送失败","");sending=false;
+    document.getElementById("btnS").disabled=false;
+    document.getElementById("btnS").textContent="重新发送";
+  }
+}
+</script>
+</body>
+</html>
