@@ -6,6 +6,7 @@
 #include "esp_log.h"
 #include <stdio.h>
 #include <string.h>
+#include <dirent.h>
 
 static const char *TAG = "ebook_reader";
 
