@@ -32,6 +32,10 @@ h1{color:#333;margin-bottom:2px;font-size:18px}
 input[type=file]{display:none}
 .panel{display:none}
 .hint{font-size:10px;color:#999;margin-top:6px;text-align:center}
+.tag{display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;margin-left:4px}
+.tag-book{background:#e3f2fd;color:#1976d2}
+.tag-music{background:#fce4ec;color:#c62828}
+.tag-img{background:#e8f5e9;color:#2e7d32}
 </style>
 </head>
 <body>
@@ -48,14 +52,24 @@ input[type=file]{display:none}
 </div>
 
 <div class="tabs" id="tabBar" style="display:none">
-  <button class="tab active" onclick="switchTab(0)">电子书</button>
-  <button class="tab" onclick="switchTab(1)">音乐</button>
-  <button class="tab" onclick="switchTab(2)">图片</button>
+  <button class="tab active" onclick="switchTab(0)">蓝牙传输</button>
+  <button class="tab" onclick="switchTab(1)">电子书</button>
+  <button class="tab" onclick="switchTab(2)">音乐</button>
+  <button class="tab" onclick="switchTab(3)">图片</button>
 </div>
 
 <div class="card" id="fCard" style="display:none">
-  <!-- 电子书面板 -->
+  <!-- 蓝牙传输面板(自动识别) -->
   <div class="panel" id="panel0">
+    <label class="file-label" for="fInputG">选择文件 (TXT/MP3/WAV/BMP/JPG/PNG)</label>
+    <input type="file" id="fInputG" accept=".txt,.mp3,.wav,.bmp,.jpg,.jpeg,.png" onchange="onFile(event,-1)">
+    <div class="info" id="fInfoG"></div>
+    <button class="btn btn-g" id="btnSG" onclick="sendFile(-1)" disabled>发送到设备</button>
+    <p class="hint" id="hintG">自动识别文件类型并保存到对应目录</p>
+  </div>
+
+  <!-- 电子书面板 -->
+  <div class="panel" id="panel1">
     <label class="file-label" for="fInput0">选择 TXT 电子书</label>
     <input type="file" id="fInput0" accept=".txt" onchange="onFile(event,0)">
     <div class="info" id="fInfo0"></div>
@@ -64,7 +78,7 @@ input[type=file]{display:none}
   </div>
 
   <!-- 音乐面板 -->
-  <div class="panel" id="panel1">
+  <div class="panel" id="panel2">
     <label class="file-label" for="fInput1">选择音频文件 (WAV/MP3)</label>
     <input type="file" id="fInput1" accept=".wav,.mp3" onchange="onFile(event,1)">
     <div class="info" id="fInfo1"></div>
@@ -73,7 +87,7 @@ input[type=file]{display:none}
   </div>
 
   <!-- 图片面板 -->
-  <div class="panel" id="panel2">
+  <div class="panel" id="panel3">
     <label class="file-label" for="fInput2">选择图片 (BMP/JPG/PNG)</label>
     <input type="file" id="fInput2" accept=".bmp,.jpg,.jpeg,.png" onchange="onFile(event,2)">
     <div class="info" id="fInfo2"></div>
@@ -93,17 +107,16 @@ input[type=file]{display:none}
 </div>
 
 <script>
-// 统一 BLE UUID (复用 ebook 协议)
 const SVC="a0e80001-2b4d-4c9a-b5c1-9e3d6f0a5b21";
 const NAME="a0e80010-2b4d-4c9a-b5c1-9e3d6f0a5b21";
 const DATA="a0e80020-2b4d-4c9a-b5c1-9e3d6f0a5b21";
 const CTRL="a0e80030-2b4d-4c9a-b5c1-9e3d6f0a5b21";
 
-// 各类型的目标目录前缀
 const DIRS=["ebooks/","music/","images/"];
+const TYPE_HINT={".txt":"电子书",".mp3":"音乐",".wav":"音乐",".bmp":"图片",".jpg":"图片",".jpeg":"图片",".png":"图片"};
 
 let dev=null,gatt=null,nameC=null,dataC=null,ctrlC=null;
-let fileData=[null,null,null],fileName=["","",""],sending=false;
+let fileData=null,fileName="",sending=false;
 let curTab=0;
 
 function log(m){const e=document.getElementById("log");const t=new Date().toLocaleTimeString();e.textContent+=`[${t}] ${m}
@@ -113,7 +126,20 @@ function setS(t,c){document.getElementById("stxt").textContent=t;const d=documen
 function switchTab(idx){
   curTab=idx;
   document.querySelectorAll(".tab").forEach((t,i)=>t.classList.toggle("active",i===idx));
-  document.querySelectorAll(".panel").forEach((p,i)=>p.style.display=i===idx?"":"none");
+  document.querySelectorAll(".panel").forEach((p,i)=>{
+    if(i===0) p.style.display=idx===0?"":"none";
+    if(i===1) p.style.display=idx===1?"":"none";
+    if(i===2) p.style.display=idx===2?"":"none";
+    if(i===3) p.style.display=idx===3?"":"none";
+  });
+}
+
+function detectDir(name){
+  const ext=("."+name.split(".").pop().toLowerCase());
+  if(ext===".txt") return "ebooks/";
+  if(ext===".mp3"||ext===".wav") return "music/";
+  if(ext===".bmp"||ext===".jpg"||ext===".jpeg"||ext===".png") return "images/";
+  return "ebooks/";
 }
 
 async function doConnect(){
@@ -133,50 +159,65 @@ async function doConnect(){
     document.getElementById("tabBar").style.display="flex";
     switchTab(0);
     setS("已连接","on");
-    log("连接成功！选择文件类型");
+    log("连接成功！选择文件即可传输");
   }catch(e){log("连接失败: "+e.message)}
 }
 function doDisconnect(){if(dev&&dev.gatt.connected)dev.gatt.disconnect()}
 
 function onFile(ev,idx){
   const f=ev.target.files[0];if(!f)return;
-  fileName[idx]=f.name;
+  fileName=f.name;
   log("文件: "+f.name+" ("+f.size+" 字节)");
   const r=new FileReader();
   r.onload=function(e){
-    fileData[idx]=new Uint8Array(e.target.result);
-    document.getElementById("fInfo"+idx).textContent=f.size+" 字节";
-    document.getElementById("btnS"+idx).disabled=false;
-    log("文件已加载");
+    fileData=new Uint8Array(e.target.result);
+    const dir=detectDir(f.name);
+    const hint=TYPE_HINT[("."+f.name.split(".").pop().toLowerCase())]||"未知";
+    if(idx===-1){
+      document.getElementById("fInfoG").textContent=f.size+" 字节 ["+hint+"→"+dir+"]";
+      document.getElementById("btnSG").disabled=false;
+      document.getElementById("hintG").textContent="识别为: "+hint+" → 保存到 /spiffs/"+dir;
+    }else{
+      document.getElementById("fInfo"+idx).textContent=f.size+" 字节";
+      document.getElementById("btnS"+idx).disabled=false;
+    }
+    log("文件已加载, 类型: "+hint);
   };
   r.readAsArrayBuffer(f);
 }
 
+function getDir(idx){
+  if(idx===-1) return detectDir(fileName);
+  return DIRS[idx];
+}
+
 async function sendFile(idx){
-  if(!ctrlC||!fileData[idx])return;
+  if(!ctrlC||!fileData)return;
   sending=true;
-  document.getElementById("btnS"+idx).disabled=true;
-  document.getElementById("btnS"+idx).textContent="发送中...";
+  const btn=idx===-1?document.getElementById("btnSG"):document.getElementById("btnS"+idx);
+  btn.disabled=true;
+  btn.textContent="发送中...";
   document.getElementById("pDiv").style.display="";
   setS("发送中","rx");
 
   try{
-    const remoteName=DIRS[idx]+fileName[idx];
+    const dir=getDir(idx);
+    const remoteName=dir+fileName;
     await nameC.writeValue(new TextEncoder().encode(remoteName));
     log("已发送文件名: "+remoteName);
 
-    const sz=fileData[idx].length;
+    const sz=fileData.length;
     const startCmd=new Uint8Array([0x01,sz&0xFF,(sz>>8)&0xFF,(sz>>16)&0xFF,(sz>>24)&0xFF]);
     await ctrlC.writeValue(startCmd);
     log("开始发送, "+sz+" 字节");
 
     const CHUNK=200;
-    for(let i=0;i<fileData[idx].length;i+=CHUNK){
-      const chunk=fileData[idx].slice(i,Math.min(i+CHUNK,fileData[idx].length));
+    for(let i=0;i<fileData.length;i+=CHUNK){
+      const chunk=fileData.slice(i,Math.min(i+CHUNK,fileData.length));
       await dataC.writeValue(chunk);
-      const pct=Math.min(100,Math.round((i+chunk.length)/fileData[idx].length*100));
+      const pct=Math.min(100,Math.round((i+chunk.length)/fileData.length*100));
       document.getElementById("pFill").style.width=pct+"%";
-      document.getElementById("pTxt").textContent=pct+"% ("+(i+chunk.length)+"/"+fileData[idx].length+")";
+      document.getElementById("pTxt").textContent=pct+"% ("+(i+chunk.length)+"/"+fileData.length+")";
       if(i%1000===0)await new Promise(r=>setTimeout(r,10));
     }
 
@@ -184,12 +225,14 @@ async function sendFile(idx){
     setS("发送完成","on");
     document.getElementById("pTxt").textContent="100% 完成!";
     log("传输完成！");
+    btn.textContent="发送到设备";
+    btn.disabled=false;
   }catch(e){
     log("发送失败: "+e.message);
     try{await ctrlC.writeValue(new Uint8Array([0x03]))}catch(x){}
     setS("发送失败","");sending=false;
-    document.getElementById("btnS"+idx).disabled=false;
-    document.getElementById("btnS"+idx).textContent="重新发送";
+    btn.disabled=false;
+    btn.textContent="重新发送";
   }
 }
 </script>
