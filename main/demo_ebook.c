@@ -1,5 +1,5 @@
-// main/demo_ebook.c —— 电子书阅读器页面（支持书籍选择）。
-// 菜单: UP/DOWN=选择书籍, OK=阅读, 长按 OK=删除选中书籍
+// main/demo_ebook.c —— 电子书阅读器页面（单 panel 方案，避免阴影遮挡）。
+// 菜单: UP/DOWN=选择书籍, OK=阅读, 长按 OK=返回
 // 阅读: UP=上一页, DOWN=下一页, OK=息屏
 #include "demo.h"
 #include "ebook_reader.h"
@@ -19,23 +19,24 @@ static view_mode_t s_mode = VIEW_LIST;
 static lv_obj_t *s_scr;
 static lv_obj_t *s_title_label;
 
-static lv_obj_t *s_list_panel;
+static lv_obj_t *s_panel;
 static lv_obj_t *s_hint;
+
 static lv_obj_t *s_list_items[8];
 static ebook_book_t s_books[EBOOK_MAX_BOOKS];
 static int s_book_count = 0;
 static int s_book_sel = 0;
 static int s_book_scroll = 0;
 
-static lv_obj_t *s_read_panel;
 static lv_obj_t *s_text;
 static lv_obj_t *s_page_info;
+static lv_obj_t *s_read_hint;
 
 static ebook_reader_t s_reader;
 static bool s_screen_off = false;
 
 static void refresh_list(void) {
-    if (!s_list_panel) return;
+    if (!s_panel) return;
     for (int i = 0; i < 8; i++) {
         if (s_list_items[i]) { lv_obj_delete(s_list_items[i]); s_list_items[i] = NULL; }
     }
@@ -44,7 +45,7 @@ static void refresh_list(void) {
     if (vis < 0) vis = 0;
     for (int i = 0; i < vis; i++) {
         int idx = s_book_scroll + i;
-        lv_obj_t *lb = lv_label_create(s_list_panel);
+        lv_obj_t *lb = lv_label_create(s_panel);
         lv_obj_set_style_text_font(lb, &notosanssc_16, 0);
         lv_label_set_text(lb, s_books[idx].name);
         lv_obj_set_width(lb, 200);
@@ -55,7 +56,7 @@ static void refresh_list(void) {
         s_list_items[i] = lb;
     }
     if (s_book_count == 0) {
-        lv_obj_t *lb = lv_label_create(s_list_panel);
+        lv_obj_t *lb = lv_label_create(s_panel);
         lv_label_set_text(lb, "暂无书籍");
         lv_obj_set_style_text_color(lb, lv_color_hex(0x999999), 0);
         lv_obj_set_style_text_font(lb, &notosanssc_16, 0);
@@ -66,8 +67,9 @@ static void refresh_list(void) {
 
 static void show_list(void) {
     s_mode = VIEW_LIST;
-    if (s_read_panel) lv_obj_add_flag(s_read_panel, LV_OBJ_FLAG_HIDDEN);
-    if (s_list_panel) lv_obj_remove_flag(s_list_panel, LV_OBJ_FLAG_HIDDEN);
+    if (s_text) lv_obj_add_flag(s_text, LV_OBJ_FLAG_HIDDEN);
+    if (s_page_info) lv_obj_add_flag(s_page_info, LV_OBJ_FLAG_HIDDEN);
+    if (s_read_hint) lv_obj_add_flag(s_read_hint, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(s_title_label, "电子书");
     lv_label_set_text(s_hint, s_book_count > 0
         ? "UP/DOWN 选择 OK 阅读\n长按 OK 返回" : "暂无书籍\n请通过蓝牙传书");
@@ -76,9 +78,14 @@ static void show_list(void) {
 
 static void show_read(void) {
     s_mode = VIEW_READ;
-    if (s_list_panel) lv_obj_add_flag(s_list_panel, LV_OBJ_FLAG_HIDDEN);
-    if (s_read_panel) lv_obj_remove_flag(s_read_panel, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < 8; i++) {
+        if (s_list_items[i]) { lv_obj_delete(s_list_items[i]); s_list_items[i] = NULL; }
+    }
+    if (s_text) lv_obj_remove_flag(s_text, LV_OBJ_FLAG_HIDDEN);
+    if (s_page_info) lv_obj_remove_flag(s_page_info, LV_OBJ_FLAG_HIDDEN);
+    if (s_read_hint) lv_obj_remove_flag(s_read_hint, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(s_title_label, s_books[s_book_sel].name);
+    lv_label_set_text(s_hint, "UP=上页 DOWN=下页\nOK=息屏 长按OK=返回");
 }
 
 static void update_page_display(void) {
@@ -95,36 +102,38 @@ void demo_ebook_enter(void) {
     s_screen_off = false;
     s_scr = ui_pixel_screen_create("电子书");
 
-    /* 找到标题标签: screen 的最后一个子对象是 ui_pixel_screen_create 创建的 plate -> heading */
-    s_title_label = lv_obj_get_child(s_scr, 0);
-    /* 不可靠, 直接用 screen 的 child 遍历找 label */
     s_title_label = lv_label_create(s_scr);
     lv_obj_set_style_text_color(s_title_label, lv_color_hex(UI_INK), 0);
     lv_obj_set_style_text_font(s_title_label, &notosanssc_16, 0);
     lv_obj_set_pos(s_title_label, 50, 14);
 
-    s_list_panel = ui_pixel_panel_create(s_scr, 10, 48, 220, 240, UI_PAPER);
+    s_panel = ui_pixel_panel_create(s_scr, 10, 48, 220, 240, UI_PAPER);
+
+    s_text = lv_label_create(s_panel);
+    lv_obj_set_style_text_color(s_text, lv_color_hex(UI_INK), 0);
+    lv_obj_set_size(s_text, 204, 190);
+    lv_obj_align(s_text, LV_ALIGN_TOP_LEFT, 8, 8);
+    lv_label_set_long_mode(s_text, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_font(s_text, &notosanssc_16, 0);
+    lv_obj_add_flag(s_text, LV_OBJ_FLAG_HIDDEN);
+
+    s_page_info = lv_label_create(s_panel);
+    lv_obj_set_style_text_color(s_page_info, lv_color_hex(UI_ORANGE), 0);
+    lv_obj_set_style_text_font(s_page_info, &notosanssc_16, 0);
+    lv_obj_align(s_page_info, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_obj_add_flag(s_page_info, LV_OBJ_FLAG_HIDDEN);
+
+    s_read_hint = lv_label_create(s_panel);
+    lv_obj_set_style_text_color(s_read_hint, lv_color_hex(0x999999), 0);
+    lv_obj_set_style_text_font(s_read_hint, &notosanssc_16, 0);
+    lv_obj_align(s_read_hint, LV_ALIGN_BOTTOM_MID, 0, -20);
+    lv_obj_add_flag(s_read_hint, LV_OBJ_FLAG_HIDDEN);
 
     s_hint = lv_label_create(s_scr);
     lv_obj_set_style_text_color(s_hint, lv_color_hex(0x999999), 0);
     lv_obj_set_style_text_font(s_hint, &notosanssc_16, 0);
     lv_obj_align(s_hint, LV_ALIGN_BOTTOM_MID, 0, -4);
     lv_obj_set_size(s_hint, 220, 30);
-
-    s_read_panel = ui_pixel_panel_create(s_scr, 10, 48, 220, 240, UI_PAPER);
-    lv_obj_add_flag(s_read_panel, LV_OBJ_FLAG_HIDDEN);
-
-    s_text = lv_label_create(s_read_panel);
-    lv_obj_set_style_text_color(s_text, lv_color_hex(UI_INK), 0);
-    lv_obj_set_size(s_text, 204, 200);
-    lv_obj_align(s_text, LV_ALIGN_TOP_LEFT, 8, 8);
-    lv_label_set_long_mode(s_text, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_font(s_text, &notosanssc_16, 0);
-
-    s_page_info = lv_label_create(s_read_panel);
-    lv_obj_set_style_text_color(s_page_info, lv_color_hex(UI_ORANGE), 0);
-    lv_obj_set_style_text_font(s_page_info, &notosanssc_16, 0);
-    lv_obj_align(s_page_info, LV_ALIGN_BOTTOM_MID, 0, -4);
 
     lv_screen_load(s_scr);
 
@@ -146,8 +155,8 @@ void demo_ebook_exit(void) {
     if (s_scr) {
         lv_obj_delete(s_scr);
         s_scr = NULL; s_text = NULL; s_page_info = NULL;
-        s_title_label = NULL; s_list_panel = NULL;
-        s_read_panel = NULL; s_hint = NULL;
+        s_title_label = NULL; s_panel = NULL;
+        s_hint = NULL; s_read_hint = NULL;
         memset(s_list_items, 0, sizeof(s_list_items));
     }
 }
