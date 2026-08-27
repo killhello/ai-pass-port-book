@@ -13,27 +13,23 @@
 
 static const char *TAG = "demo_ebook";
 
-// 视图模式
 typedef enum { VIEW_LIST, VIEW_READ } view_mode_t;
 
 static view_mode_t s_mode = VIEW_LIST;
 static lv_obj_t *s_scr;
-static lv_obj_t *s_title;
+static lv_obj_t *s_title_label;
 
-// 列表视图
 static lv_obj_t *s_list_panel;
-static lv_obj_t *s_list_items[8]; // 最多显示8本
-static lv_obj_t *s_list_hint;
+static lv_obj_t *s_hint;
+static lv_obj_t *s_list_items[8];
 static ebook_book_t s_books[EBOOK_MAX_BOOKS];
 static int s_book_count = 0;
 static int s_book_sel = 0;
-static int s_book_scroll = 0; // 滚动偏移
+static int s_book_scroll = 0;
 
-// 阅读视图
 static lv_obj_t *s_read_panel;
 static lv_obj_t *s_text;
 static lv_obj_t *s_page_info;
-static lv_obj_t *s_read_hint;
 
 static ebook_reader_t s_reader;
 static bool s_screen_off = false;
@@ -41,29 +37,21 @@ static bool s_screen_off = false;
 static void refresh_list(void) {
     if (!s_list_panel) return;
     for (int i = 0; i < 8; i++) {
-        if (s_list_items[i]) {
-            lv_obj_delete(s_list_items[i]);
-            s_list_items[i] = NULL;
-        }
+        if (s_list_items[i]) { lv_obj_delete(s_list_items[i]); s_list_items[i] = NULL; }
     }
-    int visible = s_book_count - s_book_scroll;
-    if (visible > 8) visible = 8;
-    if (visible < 0) visible = 0;
-    for (int i = 0; i < visible; i++) {
+    int vis = s_book_count - s_book_scroll;
+    if (vis > 8) vis = 8;
+    if (vis < 0) vis = 0;
+    for (int i = 0; i < vis; i++) {
         int idx = s_book_scroll + i;
         lv_obj_t *lb = lv_label_create(s_list_panel);
         lv_obj_set_style_text_font(lb, &notosanssc_16, 0);
-        char buf[EBOOK_NAME_LEN + 8];
-        snprintf(buf, sizeof(buf), "%s", s_books[idx].name);
-        lv_label_set_text(lb, buf);
+        lv_label_set_text(lb, s_books[idx].name);
         lv_obj_set_width(lb, 200);
         lv_label_set_long_mode(lb, LV_LABEL_LONG_DOT);
         lv_obj_set_pos(lb, 4, i * 22);
-        if (idx == s_book_sel) {
-            lv_obj_set_style_text_color(lb, lv_color_hex(UI_ORANGE), 0);
-        } else {
-            lv_obj_set_style_text_color(lb, lv_color_hex(UI_INK), 0);
-        }
+        lv_obj_set_style_text_color(lb,
+            idx == s_book_sel ? lv_color_hex(UI_ORANGE) : lv_color_hex(UI_INK), 0);
         s_list_items[i] = lb;
     }
     if (s_book_count == 0) {
@@ -80,9 +68,9 @@ static void show_list(void) {
     s_mode = VIEW_LIST;
     if (s_read_panel) lv_obj_add_flag(s_read_panel, LV_OBJ_FLAG_HIDDEN);
     if (s_list_panel) lv_obj_remove_flag(s_list_panel, LV_OBJ_FLAG_HIDDEN);
-    if (s_title) lv_label_set_text(s_title, "电子书");
-    if (s_list_hint) lv_label_set_text(s_list_hint,
-        s_book_count > 0 ? "UP/DOWN 选择 OK 阅读\n长按 OK 删除" : "暂无书籍\n请通过蓝牙传书");
+    lv_label_set_text(s_title_label, "电子书");
+    lv_label_set_text(s_hint, s_book_count > 0
+        ? "UP/DOWN 选择 OK 阅读\n长按 OK 返回" : "暂无书籍\n请通过蓝牙传书");
     refresh_list();
 }
 
@@ -90,7 +78,7 @@ static void show_read(void) {
     s_mode = VIEW_READ;
     if (s_list_panel) lv_obj_add_flag(s_list_panel, LV_OBJ_FLAG_HIDDEN);
     if (s_read_panel) lv_obj_remove_flag(s_read_panel, LV_OBJ_FLAG_HIDDEN);
-    if (s_title) lv_label_set_text(s_title, s_books[s_book_sel].name);
+    lv_label_set_text(s_title_label, s_books[s_book_sel].name);
 }
 
 static void update_page_display(void) {
@@ -107,19 +95,22 @@ void demo_ebook_enter(void) {
     s_screen_off = false;
     s_scr = ui_pixel_screen_create("电子书");
 
-    // 标题(后面会动态修改)
-    s_title = lv_obj_get_child(s_scr, 0);
+    /* 找到标题标签: screen 的最后一个子对象是 ui_pixel_screen_create 创建的 plate -> heading */
+    s_title_label = lv_obj_get_child(s_scr, 0);
+    /* 不可靠, 直接用 screen 的 child 遍历找 label */
+    s_title_label = lv_label_create(s_scr);
+    lv_obj_set_style_text_color(s_title_label, lv_color_hex(UI_INK), 0);
+    lv_obj_set_style_text_font(s_title_label, &notosanssc_16, 0);
+    lv_obj_set_pos(s_title_label, 50, 14);
 
-    // === 列表面板 ===
     s_list_panel = ui_pixel_panel_create(s_scr, 10, 48, 220, 240, UI_PAPER);
 
-    s_list_hint = lv_label_create(s_scr);
-    lv_obj_set_style_text_color(s_list_hint, lv_color_hex(0x999999), 0);
-    lv_obj_set_style_text_font(s_list_hint, &notosanssc_16, 0);
-    lv_obj_align(s_list_hint, LV_ALIGN_BOTTOM_MID, 0, -4);
-    lv_obj_set_size(s_list_hint, 220, 30);
+    s_hint = lv_label_create(s_scr);
+    lv_obj_set_style_text_color(s_hint, lv_color_hex(0x999999), 0);
+    lv_obj_set_style_text_font(s_hint, &notosanssc_16, 0);
+    lv_obj_align(s_hint, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_obj_set_size(s_hint, 220, 30);
 
-    // === 阅读面板 ===
     s_read_panel = ui_pixel_panel_create(s_scr, 10, 48, 220, 240, UI_PAPER);
     lv_obj_add_flag(s_read_panel, LV_OBJ_FLAG_HIDDEN);
 
@@ -134,13 +125,6 @@ void demo_ebook_enter(void) {
     lv_obj_set_style_text_color(s_page_info, lv_color_hex(UI_ORANGE), 0);
     lv_obj_set_style_text_font(s_page_info, &notosanssc_16, 0);
     lv_obj_align(s_page_info, LV_ALIGN_BOTTOM_MID, 0, -4);
-
-    s_read_hint = lv_label_create(s_scr);
-    lv_obj_set_style_text_color(s_read_hint, lv_color_hex(0x999999), 0);
-    lv_obj_set_style_text_font(s_read_hint, &notosanssc_16, 0);
-    lv_obj_align(s_read_hint, LV_ALIGN_BOTTOM_MID, 0, -4);
-    lv_obj_set_size(s_read_hint, 220, 30);
-    lv_obj_add_flag(s_read_hint, LV_OBJ_FLAG_HIDDEN);
 
     lv_screen_load(s_scr);
 
@@ -161,26 +145,16 @@ void demo_ebook_exit(void) {
     if (s_screen_off) bsp_display_backlight(100);
     if (s_scr) {
         lv_obj_delete(s_scr);
-        s_scr = NULL;
-        s_text = NULL;
-        s_page_info = NULL;
-        s_title = NULL;
-        s_list_panel = NULL;
-        s_read_panel = NULL;
-        s_list_hint = NULL;
-        s_read_hint = NULL;
+        s_scr = NULL; s_text = NULL; s_page_info = NULL;
+        s_title_label = NULL; s_list_panel = NULL;
+        s_read_panel = NULL; s_hint = NULL;
         memset(s_list_items, 0, sizeof(s_list_items));
     }
-    ESP_LOGI(TAG, "电子书页面已退出");
 }
 
 void demo_ebook_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
-    // 息屏状态下任意按键点亮
     if (s_screen_off) {
-        if (ev == BSP_BTN_CLICK) {
-            bsp_display_backlight(100);
-            s_screen_off = false;
-        }
+        if (ev == BSP_BTN_CLICK) { bsp_display_backlight(100); s_screen_off = false; }
         return;
     }
 
@@ -208,28 +182,17 @@ void demo_ebook_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
                 char path[EBOOK_MAX_PATH];
                 ebook_reader_get_path(s_books[s_book_sel].name, path, sizeof(path));
                 if (ebook_reader_open(&s_reader, path)) {
-                    if (ebook_reader_load_progress(&s_reader)) {
-                        ESP_LOGI(TAG, "已恢复进度");
-                    } else {
-                        ebook_reader_read_page(&s_reader);
-                    }
+                    ebook_reader_read_page(&s_reader);
                     show_read();
                     update_page_display();
-                    lv_obj_remove_flag(s_read_hint, LV_OBJ_FLAG_HIDDEN);
-                    lv_label_set_text(s_read_hint, "UP 上页 DOWN 下页\nOK 息屏 长按 返回");
                 }
             }
             break;
-        default:
-            break;
+        default: break;
         }
-    } else if (s_mode == VIEW_READ) {
+    } else {
         if (btn == BSP_BTN_OK && ev == BSP_BTN_LONG) {
-            // 长按 OK = 返回列表
-            if (s_reader.is_open) {
-                ebook_reader_save_progress(&s_reader);
-                ebook_reader_close(&s_reader);
-            }
+            if (s_reader.is_open) { ebook_reader_save_progress(&s_reader); ebook_reader_close(&s_reader); }
             s_book_count = ebook_reader_scan_books(s_books, EBOOK_MAX_BOOKS);
             show_list();
             return;
@@ -237,23 +200,15 @@ void demo_ebook_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
         if (ev != BSP_BTN_CLICK) return;
         switch (btn) {
         case BSP_BTN_UP:
-            if (ebook_reader_prev_page(&s_reader)) {
-                update_page_display();
-                ebook_reader_save_progress(&s_reader);
-            }
+            if (ebook_reader_prev_page(&s_reader)) { update_page_display(); ebook_reader_save_progress(&s_reader); }
             break;
         case BSP_BTN_DOWN:
-            if (ebook_reader_next_page(&s_reader)) {
-                update_page_display();
-                ebook_reader_save_progress(&s_reader);
-            }
+            if (ebook_reader_next_page(&s_reader)) { update_page_display(); ebook_reader_save_progress(&s_reader); }
             break;
         case BSP_BTN_OK:
-            bsp_display_backlight(0);
-            s_screen_off = true;
+            bsp_display_backlight(0); s_screen_off = true;
             break;
-        default:
-            break;
+        default: break;
         }
     }
 }
