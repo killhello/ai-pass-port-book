@@ -114,7 +114,7 @@ static int cb_data(uint16_t conn, uint16_t attr,
                    struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn; (void)attr; (void)arg;
     if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return 0;
-    if (!s_fp) return BLE_ATT_ERR_UNLIKELY_ERROR;
+    if (!s_fp) return BLE_ATT_ERR_UNLIKELY;
     uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
     if (len == 0) return 0;
     uint8_t buf[512];
