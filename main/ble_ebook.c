@@ -37,6 +37,7 @@ static const ble_uuid128_t s_ctrl_uuid = BLE_UUID128_INIT(
 
 static uint16_t s_name_val_h, s_data_val_h, s_ctrl_val_h;
 static volatile bool s_running = false;
+static bool s_nimble_inited = false;
 static uint16_t s_conn_h = BLE_HS_CONN_HANDLE_NONE;
 static uint8_t s_own_addr_type;
 
@@ -273,12 +274,16 @@ bool ble_ebook_start(void) {
     s_filename[0] = 0;
     close_file();
 
-    nimble_port_deinit();
+    if (s_nimble_inited) {
+        nimble_port_deinit();
+        s_nimble_inited = false;
+    }
     esp_err_t err = nimble_port_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "nimble init 失败 %s", esp_err_to_name(err));
         return false;
     }
+    s_nimble_inited = true;
     ble_svc_gap_device_name_set(DEV_NAME);
     ble_svc_gap_init();
     ble_svc_gatt_init();
