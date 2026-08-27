@@ -304,12 +304,8 @@ void ble_ebook_stop(void) {
     s_running = false;
     close_file();
     if (ble_gap_adv_active()) ble_gap_adv_stop();
-    if (s_conn_h != BLE_HS_CONN_HANDLE_NONE) {
-        ble_gap_terminate(s_conn_h, BLE_ERR_REM_USER_CONN_TERM);
-    }
     s_conn_h = BLE_HS_CONN_HANDLE_NONE;
     s_state = BLE_EBOOK_IDLE;
-    nimble_port_stop();
     ESP_LOGI(TAG, "BLE 电子书停止");
 }
 
