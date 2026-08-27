@@ -28,6 +28,7 @@ static const demo_entry_t DEMOS[] = {
     { "电子书", demo_ebook_enter,   demo_ebook_exit,   demo_ebook_key   },
     { "智能",   demo_ai_enter,      demo_ai_exit,      demo_ai_key      },
     { "关于",   demo_about_enter,   demo_about_exit,   demo_about_key   },
+    { "蓝牙传书", demo_ble_ebook_enter, demo_ble_ebook_exit, demo_ble_ebook_key },
     { "蓝牙音乐", demo_music_enter, demo_music_exit, demo_music_key },
     { "图片浏览", demo_image_enter, demo_image_exit, demo_image_key },
 };
@@ -185,8 +186,9 @@ void app_main(void) {
     s_ok[1] = s_spiffs_ok;                            // 电子书
     s_ok[2] = true;                                   // AI
     s_ok[3] = true;                                   // 关于
-    s_ok[4] = s_spiffs_ok;                            // 蓝牙音乐
-    s_ok[5] = s_spiffs_ok;                            // 图片浏览
+    s_ok[4] = true;                                   // 蓝牙传书
+    s_ok[5] = s_spiffs_ok;                            // 蓝牙音乐
+    s_ok[6] = s_spiffs_ok;                            // 图片浏览
 
     ESP_ERROR_CHECK(bsp_button_init(on_key, NULL));   // 按键(全局必需)
 
