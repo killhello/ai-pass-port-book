@@ -247,3 +247,51 @@ void ebook_reader_clear_progress(void) {
         nvs_close(handle);
     }
 }
+
+// ===== 书籍管理 =====
+
+void ebook_reader_get_path(const char *name, char *path, size_t path_sz) {
+    snprintf(path, path_sz, "%s/%s", EBOOK_DIR, name);
+}
+
+int ebook_reader_scan_books(ebook_book_t *books, int max_books) {
+    int count = 0;
+    DIR *dir = opendir(EBOOK_DIR);
+    if (!dir) return 0;
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL && count < max_books) {
+        if (ent->d_type == DT_REG) {
+            const char *name = ent->d_name;
+            size_t nlen = strlen(name);
+            if (nlen > 4 && strcmp(name + nlen - 4, ".txt") == 0) {
+                strlcpy(books[count].name, name, EBOOK_NAME_LEN);
+                // 获取文件大小
+                char path[EBOOK_MAX_PATH];
+                ebook_reader_get_path(name, path, sizeof(path));
+                FILE *fp = fopen(path, "r");
+                if (fp) {
+                    fseek(fp, 0, SEEK_END);
+                    books[count].size = (uint32_t)ftell(fp);
+                    fclose(fp);
+                } else {
+                    books[count].size = 0;
+                }
+                count++;
+            }
+        }
+    }
+    closedir(dir);
+    ESP_LOGI(TAG, "扫描到 %d 本书", count);
+    return count;
+}
+
+bool ebook_reader_delete_book(const char *name) {
+    char path[EBOOK_MAX_PATH];
+    ebook_reader_get_path(name, path, sizeof(path));
+    if (remove(path) == 0) {
+        ESP_LOGI(TAG, "已删除: %s", path);
+        return true;
+    }
+    ESP_LOGE(TAG, "删除失败: %s", path);
+    return false;
+}

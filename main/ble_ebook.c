@@ -1,4 +1,5 @@
-// main/ble_ebook.c —— BLE 电子书流式传输服务（NimBLE GATT）。
+// main/ble_ebook.c —— BLE 整书传输服务（NimBLE GATT）。
+// 手机发送文件名+内容，设备存到 SPIFFS /ebooks/ 目录。
 #include "ble_ebook.h"
 #include "esp_log.h"
 #include <string.h>
@@ -17,46 +18,44 @@
 
 static const char *TAG = "ble_ebook";
 static const char *DEV_NAME = "AI-Passport";
+#define EBOOK_DIR "/spiffs/ebooks"
 
+// UUID: A0E80001 / 0x10=文件名 0x20=内容 0x30=控制
 static const ble_uuid128_t s_svc_uuid = BLE_UUID128_INIT(
     0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
     0x9a,0x4c,0x4d,0x2b,0x01,0x00,0xe8,0xa0);
-static const ble_uuid128_t s_filepath_uuid = BLE_UUID128_INIT(
+static const ble_uuid128_t s_name_uuid = BLE_UUID128_INIT(
     0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
     0x9a,0x4c,0x4d,0x2b,0x10,0x00,0xe8,0xa0);
-static const ble_uuid128_t s_pagereq_uuid = BLE_UUID128_INIT(
+static const ble_uuid128_t s_data_uuid = BLE_UUID128_INIT(
     0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
     0x9a,0x4c,0x4d,0x2b,0x20,0x00,0xe8,0xa0);
-static const ble_uuid128_t s_content_uuid = BLE_UUID128_INIT(
-    0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
-    0x9a,0x4c,0x4d,0x2b,0x30,0x00,0xe8,0xa0);
 static const ble_uuid128_t s_ctrl_uuid = BLE_UUID128_INIT(
     0x21,0x5b,0x0a,0x6f,0x3d,0x9e,0xc1,0xb5,
-    0x9a,0x4c,0x4d,0x2b,0x40,0x00,0xe8,0xa0);
+    0x9a,0x4c,0x4d,0x2b,0x30,0x00,0xe8,0xa0);
 
-static uint16_t s_filepath_val_h, s_pagereq_val_h, s_content_val_h, s_ctrl_val_h;
+static uint16_t s_name_val_h, s_data_val_h, s_ctrl_val_h;
 static volatile bool s_running = false;
-static volatile bool s_got = false;
 static uint16_t s_conn_h = BLE_HS_CONN_HANDLE_NONE;
 static uint8_t s_own_addr_type;
 
-static char s_filepath[256];
-static char s_filename[128];
-static uint32_t s_total_pages = 0;
-static uint32_t s_current_page = 0;
-static char s_page_buf[1024];
-static int s_page_len = 0;
-
-static ble_ebook_state_cb_t s_state_cb = NULL;
-static ble_ebook_page_cb_t s_page_cb = NULL;
-static ble_ebook_file_cb_t s_file_cb = NULL;
 static ble_ebook_state_t s_state = BLE_EBOOK_IDLE;
+static ble_ebook_state_cb_t s_state_cb = NULL;
+static ble_ebook_progress_cb_t s_progress_cb = NULL;
 
-#define CMD_START       0x01
-#define CMD_STOP        0x02
-#define CMD_NEXT_PAGE   0x10
-#define CMD_PREV_PAGE   0x11
-#define CMD_SET_TOTAL   0x30
+static FILE *s_fp = NULL;
+static char s_filename[128];
+static uint32_t s_received = 0;
+static uint32_t s_filesize = 0;
+
+#define CMD_FILE_START  0x01   // 后跟4字节文件大小
+#define CMD_FILE_END    0x02
+#define CMD_FILE_ABORT  0x03
+
+static void set_state(ble_ebook_state_t st) {
+    s_state = st;
+    if (s_state_cb) s_state_cb(st);
+}
 
 static inline size_t strlcpy_ebk(char *d, const char *s, size_t n) {
     if (n == 0) return strlen(s);
@@ -66,112 +65,115 @@ static inline size_t strlcpy_ebk(char *d, const char *s, size_t n) {
     return strlen(s);
 }
 
-static void extract_filename(const char *path, char *name, size_t nsz) {
-    const char *p = strrchr(path, '/');
-    if (!p) p = strrchr(path, '\\');
-    if (p) p++; else p = path;
-    strlcpy_ebk(name, p, nsz);
-}
-
-static void set_state(ble_ebook_state_t st) {
-    s_state = st;
-    if (s_state_cb) s_state_cb(st);
-}
-
 static int write_to_buf(struct ble_gatt_access_ctxt *ctxt, char *buf, int bufsz) {
     uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
     if (len > (uint16_t)bufsz - 1) len = (uint16_t)bufsz - 1;
     if (ble_hs_mbuf_to_flat(ctxt->om, buf, len, &len) != 0) return -1;
     buf[len] = 0;
-    for (char *p = buf; *p; p++) if (*p == 13) memmove(p, p + 1, strlen(p));
     return 0;
 }
 
-static int cb_filepath(uint16_t conn, uint16_t attr,
-                       struct ble_gatt_access_ctxt *ctxt, void *arg) {
+static void close_file(void) {
+    if (s_fp) { fclose(s_fp); s_fp = NULL; }
+}
+
+static bool open_file(const char *name) {
+    close_file();
+    char path[192];
+    snprintf(path, sizeof(path), "%s/%s", EBOOK_DIR, name);
+    s_fp = fopen(path, "wb");
+    if (!s_fp) {
+        ESP_LOGE(TAG, "无法创建文件: %s", path);
+        return false;
+    }
+    ESP_LOGI(TAG, "创建文件: %s", path);
+    return true;
+}
+
+// 特征 0x10: 文件名 (Write)
+static int cb_name(uint16_t conn, uint16_t attr,
+                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn; (void)attr; (void)arg;
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR)
-        return os_mbuf_append(ctxt->om, s_filepath, strlen(s_filepath));
+        return os_mbuf_append(ctxt->om, s_filename, strlen(s_filename));
     if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return 0;
-    if (write_to_buf(ctxt, s_filepath, sizeof(s_filepath)) != 0)
+    char buf[128] = {0};
+    if (write_to_buf(ctxt, buf, sizeof(buf)) != 0)
         return BLE_ATT_ERR_INSUFFICIENT_RES;
-    extract_filename(s_filepath, s_filename, sizeof(s_filename));
-    s_got = true;
-    s_current_page = 0;
-    ESP_LOGI(TAG, "文件路径: %s", s_filepath);
-    if (s_file_cb) s_file_cb(s_filename, s_total_pages);
-    set_state(BLE_EBOOK_READY);
+    // 去掉路径前缀，只保留文件名
+    const char *p = strrchr(buf, '/');
+    if (!p) p = strrchr(buf, '\\');
+    if (p) p++; else p = buf;
+    strlcpy_ebk(s_filename, p, sizeof(s_filename));
+    ESP_LOGI(TAG, "文件名: %s", s_filename);
     return 0;
 }
 
-static int cb_pagereq(uint16_t conn, uint16_t attr,
-                      struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    (void)conn; (void)attr; (void)arg;
-    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-        uint8_t d[4] = {(uint8_t)(s_current_page),(uint8_t)(s_current_page>>8),
-                        (uint8_t)(s_current_page>>16),(uint8_t)(s_current_page>>24)};
-        return os_mbuf_append(ctxt->om, d, 4);
-    }
-    return 0;
-}
-
-static int cb_content(uint16_t conn, uint16_t attr,
-                      struct ble_gatt_access_ctxt *ctxt, void *arg) {
+// 特征 0x20: 文件内容 (Write)
+static int cb_data(uint16_t conn, uint16_t attr,
+                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn; (void)attr; (void)arg;
     if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return 0;
+    if (!s_fp) return BLE_ATT_ERR_UNLIKELY_ERROR;
     uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
-    if (len > sizeof(s_page_buf) - 1) len = sizeof(s_page_buf) - 1;
-    if (ble_hs_mbuf_to_flat(ctxt->om, s_page_buf, len, &len) != 0)
+    if (len == 0) return 0;
+    uint8_t buf[512];
+    if (len > sizeof(buf)) len = sizeof(buf);
+    if (ble_hs_mbuf_to_flat(ctxt->om, buf, len, &len) != 0)
         return BLE_ATT_ERR_INSUFFICIENT_RES;
-    s_page_buf[len] = 0;
-    s_page_len = len;
-    ESP_LOGI(TAG, "第 %lu 页 %d 字节", (unsigned long)s_current_page, s_page_len);
-    set_state(BLE_EBOOK_STREAMING);
-    if (s_page_cb) s_page_cb(s_page_buf, s_current_page);
+    size_t written = fwrite(buf, 1, len, s_fp);
+    s_received += written;
+    if (s_progress_cb) s_progress_cb(s_received, s_filesize);
     return 0;
 }
 
+// 特征 0x30: 控制 (Write)
 static int cb_ctrl(uint16_t conn, uint16_t attr,
                    struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)conn; (void)attr; (void)arg;
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-        uint8_t st = s_running ? 1 : 0;
+        uint8_t st = s_state;
         return os_mbuf_append(ctxt->om, &st, 1);
     }
     if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return 0;
-    uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
-    if (len < 1) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     uint8_t buf[8];
-    if (len > 8) len = 8;
+    uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
+    if (len < 1 || len > 8) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     if (ble_hs_mbuf_to_flat(ctxt->om, buf, len, NULL) != 0)
         return BLE_ATT_ERR_INSUFFICIENT_RES;
     uint8_t cmd = buf[0];
     switch (cmd) {
-    case CMD_START:
-        ESP_LOGI(TAG, "开始传输");
-        s_current_page = 0;
-        set_state(BLE_EBOOK_READY);
-        break;
-    case CMD_STOP:
-        ESP_LOGI(TAG, "停止传输");
-        set_state(BLE_EBOOK_CONNECTED);
-        break;
-    case CMD_NEXT_PAGE:
-        s_current_page++;
-        ESP_LOGI(TAG, "下一页 %lu", (unsigned long)s_current_page);
-        break;
-    case CMD_PREV_PAGE:
-        if (s_current_page > 0) s_current_page--;
-        ESP_LOGI(TAG, "上一页 %lu", (unsigned long)s_current_page);
-        break;
-    case CMD_SET_TOTAL: {
+    case CMD_FILE_START:
+        s_received = 0;
+        s_filesize = 0;
         if (len >= 5) {
-            s_total_pages = buf[1]|(buf[2]<<8)|(buf[3]<<16)|(buf[4]<<24);
-            ESP_LOGI(TAG, "总页数 %lu", (unsigned long)s_total_pages);
-            if (s_file_cb) s_file_cb(s_filename, s_total_pages);
+            s_filesize = buf[1]|(buf[2]<<8)|(buf[3]<<16)|(buf[4]<<24);
+        }
+        ESP_LOGI(TAG, "开始接收, 预计 %lu 字节", (unsigned long)s_filesize);
+        if (s_filename[0]) {
+            if (open_file(s_filename)) {
+                set_state(BLE_EBOOK_RECEIVING);
+            } else {
+                set_state(BLE_EBOOK_ERROR);
+            }
         }
         break;
-    }
+    case CMD_FILE_END:
+        ESP_LOGI(TAG, "传输完成, 共 %lu 字节", (unsigned long)s_received);
+        close_file();
+        set_state(BLE_EBOOK_DONE);
+        break;
+    case CMD_FILE_ABORT:
+        ESP_LOGI(TAG, "传输中止");
+        close_file();
+        // 删除不完整文件
+        if (s_filename[0]) {
+            char path[192];
+            snprintf(path, sizeof(path), "%s/%s", EBOOK_DIR, s_filename);
+            remove(path);
+        }
+        set_state(BLE_EBOOK_IDLE);
+        break;
     default:
         ESP_LOGW(TAG, "未知命令 0x%02x", cmd);
         break;
@@ -183,17 +185,14 @@ static const struct ble_gatt_svc_def s_svcs[] = {
     { .type = BLE_GATT_SVC_TYPE_PRIMARY,
       .uuid = &s_svc_uuid.u,
       .characteristics = (struct ble_gatt_chr_def[]) {
-          { .uuid = &s_filepath_uuid.u, .access_cb = cb_filepath,
+          { .uuid = &s_name_uuid.u, .access_cb = cb_name,
             .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
-            .val_handle = &s_filepath_val_h },
-          { .uuid = &s_pagereq_uuid.u, .access_cb = cb_pagereq,
-            .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-            .val_handle = &s_pagereq_val_h },
-          { .uuid = &s_content_uuid.u, .access_cb = cb_content,
+            .val_handle = &s_name_val_h },
+          { .uuid = &s_data_uuid.u, .access_cb = cb_data,
             .flags = BLE_GATT_CHR_F_WRITE,
-            .val_handle = &s_content_val_h },
+            .val_handle = &s_data_val_h },
           { .uuid = &s_ctrl_uuid.u, .access_cb = cb_ctrl,
-            .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_NOTIFY,
+            .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
             .val_handle = &s_ctrl_val_h },
           { 0 } } },
     { 0 }
@@ -239,7 +238,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg) {
     case BLE_GAP_EVENT_DISCONNECT:
         s_conn_h = BLE_HS_CONN_HANDLE_NONE;
         ESP_LOGI(TAG, "手机断开");
-        s_got = false;
+        close_file();
         set_state(BLE_EBOOK_IDLE);
         if (s_running) adv_restart();
         return 0;
@@ -269,12 +268,11 @@ static void host_task(void *param) {
 
 bool ble_ebook_start(void) {
     if (s_running) return true;
-    s_got = false;
-    s_filepath[0] = 0;
+    s_received = 0;
+    s_filesize = 0;
     s_filename[0] = 0;
-    s_current_page = 0;
-    s_total_pages = 0;
-    s_page_len = 0;
+    close_file();
+
     esp_err_t err = nimble_port_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "nimble init 失败 %s", esp_err_to_name(err));
@@ -298,6 +296,7 @@ bool ble_ebook_start(void) {
 void ble_ebook_stop(void) {
     if (!s_running) return;
     s_running = false;
+    close_file();
     if (ble_gap_adv_active()) ble_gap_adv_stop();
     if (s_conn_h != BLE_HS_CONN_HANDLE_NONE) {
         ble_gap_terminate(s_conn_h, BLE_ERR_REM_USER_CONN_TERM);
@@ -313,20 +312,7 @@ void ble_ebook_stop(void) {
 bool ble_ebook_is_running(void) { return s_running; }
 ble_ebook_state_t ble_ebook_get_state(void) { return s_state; }
 const char *ble_ebook_get_filename(void) { return s_filename; }
-uint32_t ble_ebook_get_current_page(void) { return s_current_page; }
-uint32_t ble_ebook_get_total_pages(void) { return s_total_pages; }
-const char *ble_ebook_get_page_content(void) { return s_page_buf; }
-
-bool ble_ebook_request_page(uint32_t page_num) {
-    if (s_conn_h == BLE_HS_CONN_HANDLE_NONE) return false;
-    s_current_page = page_num;
-    uint8_t d[4] = {(uint8_t)(page_num),(uint8_t)(page_num>>8),
-                    (uint8_t)(page_num>>16),(uint8_t)(page_num>>24)};
-    struct os_mbuf *om = ble_hs_mbuf_from_flat(d, 4);
-    if (!om) return false;
-    return ble_gattc_notify_custom(s_conn_h, s_pagereq_val_h, om) == 0;
-}
-
+uint32_t ble_ebook_get_received(void) { return s_received; }
+uint32_t ble_ebook_get_filesize(void) { return s_filesize; }
 void ble_ebook_set_state_cb(ble_ebook_state_cb_t cb) { s_state_cb = cb; }
-void ble_ebook_set_page_cb(ble_ebook_page_cb_t cb) { s_page_cb = cb; }
-void ble_ebook_set_file_cb(ble_ebook_file_cb_t cb) { s_file_cb = cb; }
+void ble_ebook_set_progress_cb(ble_ebook_progress_cb_t cb) { s_progress_cb = cb; }

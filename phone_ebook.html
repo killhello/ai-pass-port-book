@@ -5,298 +5,149 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AI-Passport 蓝牙传书</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f0f2f5; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-h1 { color: #333; margin-bottom: 8px; font-size: 22px; }
-.subtitle { color: #888; margin-bottom: 20px; font-size: 13px; }
-.card { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); padding: 16px; width: 100%; max-width: 400px; margin-bottom: 12px; }
-.status-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.dot { width: 10px; height: 10px; border-radius: 50%; background: #ccc; flex-shrink: 0; }
-.dot.connected { background: #4caf50; }
-.dot.streaming { background: #ff9800; }
-.status-text { font-size: 14px; color: #666; }
-.btn { display: block; width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; transition: all 0.2s; }
-.btn-primary { background: #1976d2; color: #fff; }
-.btn-primary:disabled { background: #ccc; cursor: not-allowed; }
-.btn-danger { background: #e53935; color: #fff; }
-.btn-success { background: #43a047; color: #fff; margin-top: 8px; }
-.file-info { font-size: 13px; color: #888; margin-top: 8px; word-break: break-all; }
-.progress { margin-top: 12px; }
-.progress-bar { height: 4px; background: #e0e0e0; border-radius: 2px; overflow: hidden; }
-.progress-fill { height: 100%; background: #1976d2; width: 0%; transition: width 0.3s; }
-.progress-text { font-size: 12px; color: #888; margin-top: 4px; }
-.log { background: #263238; color: #aed581; border-radius: 8px; padding: 12px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: 12px; max-height: 200px; overflow-y: auto; word-break: break-all; white-space: pre-wrap; }
-input[type="file"] { display: none; }
-label.file-label { display: block; padding: 12px; background: #f5f5f5; border: 2px dashed #ccc; border-radius: 8px; text-align: center; cursor: pointer; color: #666; margin-top: 12px; transition: all 0.2s; }
-label.file-label:hover { border-color: #1976d2; color: #1976d2; }
-.page-display { font-size: 28px; font-weight: bold; color: #1976d2; text-align: center; margin: 8px 0; }
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,"Microsoft YaHei",sans-serif;background:#f0f2f5;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px}
+h1{color:#333;margin-bottom:4px;font-size:20px}
+.sub{color:#888;margin-bottom:16px;font-size:12px}
+.card{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);padding:14px;width:100%;max-width:380px;margin-bottom:10px}
+.status-bar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.dot{width:10px;height:10px;border-radius:50%;background:#ccc;flex-shrink:0}
+.dot.on{background:#4caf50}.dot.rx{background:#ff9800}
+.st{font-size:13px;color:#666}
+.btn{display:block;width:100%;padding:11px;border:none;border-radius:8px;font-size:15px;cursor:pointer;transition:.2s}
+.btn-p{background:#1976d2;color:#fff}.btn-p:disabled{background:#ccc}
+.btn-d{background:#e53935;color:#fff;margin-top:6px}
+.btn-g{background:#43a047;color:#fff;margin-top:6px}
+.file-label{display:block;padding:10px;background:#f5f5f5;border:2px dashed #ccc;border-radius:8px;text-align:center;cursor:pointer;color:#666;margin-top:8px}
+.file-label:hover{border-color:#1976d2;color:#1976d2}
+.info{font-size:12px;color:#888;margin-top:6px}
+.progress{margin-top:8px}
+.pbar{height:4px;background:#e0e0e0;border-radius:2px;overflow:hidden}
+.pfill{height:100%;background:#1976d2;width:0%;transition:width .2s}
+.ptxt{font-size:11px;color:#888;margin-top:3px}
+.log{background:#263238;color:#aed581;border-radius:8px;padding:10px;font-family:monospace;font-size:11px;max-height:180px;overflow-y:auto;word-break:break-all;white-space:pre-wrap}
+input[type=file]{display:none}
 </style>
 </head>
 <body>
 <h1>AI-Passport 蓝牙传书</h1>
-<p class="subtitle">通过 BLE 将 TXT 电子书传输到设备阅读</p>
+<p class="sub">通过 BLE 发送完整 TXT 电子书到设备</p>
 
 <div class="card">
   <div class="status-bar">
     <div class="dot" id="dot"></div>
-    <span class="status-text" id="statusText">未连接</span>
+    <span class="st" id="stxt">未连接</span>
   </div>
-  <button class="btn btn-primary" id="btnConnect" onclick="connect()">连接设备</button>
-  <button class="btn btn-danger" id="btnDisconnect" onclick="disconnect()" style="display:none;margin-top:8px;">断开连接</button>
+  <button class="btn btn-p" id="btnC" onclick="doConnect()">连接设备</button>
+  <button class="btn btn-d" id="btnD" onclick="doDisconnect()" style="display:none">断开</button>
 </div>
 
-<div class="card" id="fileCard" style="display:none;">
-  <label class="file-label" for="fileInput">
-    <div id="fileLabel">点击选择 TXT 电子书</div>
-    <input type="file" id="fileInput" accept=".txt" onchange="onFileSelected(event)">
-  </label>
-  <div class="file-info" id="fileInfo"></div>
-</div>
-
-<div class="card" id="readCard" style="display:none;">
-  <div class="page-display" id="pageDisplay">0 / 0</div>
-  <div class="progress">
-    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-    <div class="progress-text" id="progressText">已缓冲: 0 / 0 页</div>
+<div class="card" id="fCard" style="display:none">
+  <label class="file-label" for="fInput">选择 TXT 电子书</label>
+  <input type="file" id="fInput" accept=".txt" onchange="onFile(event)">
+  <div class="info" id="fInfo"></div>
+  <button class="btn btn-g" id="btnS" onclick="sendFile()" disabled>发送到设备</button>
+  <div class="progress" id="pDiv" style="display:none">
+    <div class="pbar"><div class="pfill" id="pFill"></div></div>
+    <div class="ptxt" id="pTxt">0%</div>
   </div>
-  <button class="btn btn-success" id="btnSendAll" onclick="sendAllPages()">开始传输</button>
 </div>
 
 <div class="card">
-  <div class="log" id="log">等待操作...\n</div>
+  <div class="log" id="log">等待操作...
+</div>
 </div>
 
 <script>
-// BLE Service UUID
-const SERVICE_UUID = "a0e80001-2b4d-4c9a-b5c1-9e3d6f0a5b21";
-const FILEPATH_UUID = "a0e80010-2b4d-4c9a-b5c1-9e3d6f0a5b21";
-const PAGEREQ_UUID = "a0e80020-2b4d-4c9a-b5c1-9e3d6f0a5b21";
-const CONTENT_UUID = "a0e80030-2b4d-4c9a-b5c1-9e3d6f0a5b21";
-const CTRL_UUID = "a0e80040-2b4d-4c9a-b5c1-9e3d6f0a5b21";
+const SVC="a0e80001-2b4d-4c9a-b5c1-9e3d6f0a5b21";
+const NAME="a0e80010-2b4d-4c9a-b5c1-9e3d6f0a5b21";
+const DATA="a0e80020-2b4d-4c9a-b5c1-9e3d6f0a5b21";
+const CTRL="a0e80030-2b4d-4c9a-b5c1-9e3d6f0a5b21";
 
-const CHARS_PER_PAGE = 120;
+let dev=null,gatt=null,nameC=null,dataC=null,ctrlC=null;
+let fileData=null,fileName="",sending=false;
 
-let bleDevice = null;
-let bleServer = null;
-let ctrlChar = null;
-let filepathChar = null;
-let contentChar = null;
-let pagereqChar = null;
+function log(m){const e=document.getElementById("log");const t=new Date().toLocaleTimeString();e.textContent+=`[${t}] ${m}
+`;e.scrollTop=e.scrollHeight}
+function setS(t,c){document.getElementById("stxt").textContent=t;const d=document.getElementById("dot");d.className="dot"+(c==="on"?" on":c==="rx"?" rx":"");}
 
-let fileContent = "";
-let totalPages = 0;
-let cachedPages = [];
-let streaming = false;
-
-function log(msg) {
-  const el = document.getElementById("log");
-  const now = new Date().toLocaleTimeString();
-  el.textContent += `[${now}] ${msg}\n`;
-  el.scrollTop = el.scrollHeight;
-}
-
-function setStatus(text, state) {
-  document.getElementById("statusText").textContent = text;
-  const dot = document.getElementById("dot");
-  dot.className = "dot" + (state === "connected" ? " connected" : state === "streaming" ? " streaming" : "");
-}
-
-async function connect() {
-  try {
+async function doConnect(){
+  try{
     log("搜索 AI-Passport...");
-    bleDevice = await navigator.bluetooth.requestDevice({
-      filters: [{ name: "AI-Passport" }],
-      optionalServices: [SERVICE_UUID]
-    });
-    log("已选择设备: " + bleDevice.name);
-
-    bleDevice.addEventListener("gattserverdisconnected", onDisconnected);
-
-    bleServer = await bleDevice.gatt.connect();
-    log("GATT 已连接");
-
-    const service = await bleServer.getPrimaryService(SERVICE_UUID);
-    log("已获取服务");
-
-    ctrlChar = await service.getCharacteristic(CTRL_UUID);
-    filepathChar = await service.getCharacteristic(FILEPATH_UUID);
-    contentChar = await service.getCharacteristic(CONTENT_UUID);
-    pagereqChar = await service.getCharacteristic(PAGEREQ_UUID);
-    log("已获取所有特征");
-
-    // Subscribe to page request notifications
-    await pagereqChar.startNotifications();
-    pagereqChar.addEventListener("characteristicvaluechanged", onPageRequest);
-    log("已订阅页码请求通知");
-
-    document.getElementById("btnConnect").style.display = "none";
-    document.getElementById("btnDisconnect").style.display = "block";
-    document.getElementById("fileCard").style.display = "block";
-    setStatus("已连接", "connected");
-    log("连接成功！请选择 TXT 文件");
-  } catch (e) {
-    log("连接失败: " + e.message);
-    console.error(e);
-  }
+    dev=await navigator.bluetooth.requestDevice({filters:[{name:"AI-Passport"}],optionalServices:[SVC]});
+    log("已选择: "+dev.name);
+    dev.addEventListener("gattserverdisconnected",()=>{log("断开");setS("未连接","");document.getElementById("btnC").style.display="";document.getElementById("btnD").style.display="none";document.getElementById("fCard").style.display="none";sending=false;});
+    gatt=await dev.gatt.connect();
+    const svc=await gatt.getPrimaryService(SVC);
+    nameC=await svc.getCharacteristic(NAME);
+    dataC=await svc.getCharacteristic(DATA);
+    ctrlC=await svc.getCharacteristic(CTRL);
+    document.getElementById("btnC").style.display="none";
+    document.getElementById("btnD").style.display="";
+    document.getElementById("fCard").style.display="";
+    setS("已连接","on");
+    log("连接成功！选择 TXT 文件");
+  }catch(e){log("连接失败: "+e.message)}
 }
+function doDisconnect(){if(dev&&dev.gatt.connected)dev.gatt.disconnect()}
 
-function onDisconnected() {
-  log("设备已断开");
-  setStatus("未连接", "disconnected");
-  document.getElementById("btnConnect").style.display = "block";
-  document.getElementById("btnDisconnect").style.display = "none";
-  document.getElementById("fileCard").style.display = "none";
-  document.getElementById("readCard").style.display = "none";
-  streaming = false;
-}
-
-async function disconnect() {
-  if (bleDevice && bleDevice.gatt.connected) {
-    bleDevice.gatt.disconnect();
-  }
-}
-
-function onFileSelected(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  log("选择文件: " + file.name + " (" + file.size + " 字节)");
-
-  const reader = new FileReader();
-  reader.onload = async function(e) {
-    fileContent = e.target.result;
-    totalPages = Math.ceil(fileContent.length / CHARS_PER_PAGE);
-
-    // Cache 6 pages (current + 5 ahead)
-    cachedPages = [];
-    for (let i = 0; i < Math.min(6, totalPages); i++) {
-      cachedPages.push(extractPage(i));
-    }
-
-    log("文件加载完成: " + totalPages + " 页, 已缓存 " + cachedPages.length + " 页");
-
-    document.getElementById("fileLabel").textContent = file.name;
-    document.getElementById("fileInfo").textContent = file.size + " 字节, 约 " + totalPages + " 页";
-    document.getElementById("readCard").style.display = "block";
-    updateProgress(0);
+function onFile(ev){
+  const f=ev.target.files[0];if(!f)return;
+  fileName=f.name;
+  log("文件: "+f.name+" ("+f.size+" 字节)");
+  const r=new FileReader();
+  r.onload=function(e){
+    fileData=new TextEncoder().encode(e.target.result);
+    document.getElementById("fInfo").textContent=f.size+" 字节, "+fileData.length+" bytes";
+    document.getElementById("btnS").disabled=false;
+    log("文件已加载，点击发送");
   };
-  reader.readAsText(file, "UTF-8");
+  r.readAsText(f,"UTF-8");
 }
 
-function extractPage(pageNum) {
-  const start = pageNum * CHARS_PER_PAGE;
-  let end = start + CHARS_PER_PAGE;
-  if (end >= fileContent.length) end = fileContent.length;
+async function sendFile(){
+  if(!ctrlC||!fileData)return;
+  sending=true;
+  document.getElementById("btnS").disabled=true;
+  document.getElementById("btnS").textContent="发送中...";
+  document.getElementById("pDiv").style.display="";
+  setS("发送中","rx");
 
-  // Try to break at newline
-  let breakPos = fileContent.indexOf("\n", start + CHARS_PER_PAGE - 10);
-  if (breakPos !== -1 && breakPos < start + CHARS_PER_PAGE + 60) {
-    end = breakPos + 1;
-  }
+  try{
+    // 1. 发送文件名
+    await nameC.writeValue(new TextEncoder().encode(fileName));
+    log("已发送文件名: "+fileName);
 
-  return fileContent.substring(start, end);
-}
+    // 2. 发送开始命令 + 文件大小(5字节)
+    const sz=fileData.length;
+    const startCmd=new Uint8Array([0x01,sz&0xFF,(sz>>8)&0xFF,(sz>>16)&0xFF,(sz>>24)&0xFF]);
+    await ctrlC.writeValue(startCmd);
+    log("开始发送, "+sz+" 字节");
 
-function onPageRequest(event) {
-  const value = event.target.value;
-  const pageNum = value.getUint8(0) | (value.getUint8(1) << 8) |
-                  (value.getUint8(2) << 16) | (value.getUint8(3) << 24);
-
-  log("设备请求第 " + (pageNum + 1) + " 页");
-
-  document.getElementById("pageDisplay").textContent =
-    (pageNum + 1) + " / " + totalPages;
-  updateProgress(pageNum);
-
-  if (streaming && pageNum < totalPages) {
-    sendPage(pageNum);
-  }
-}
-
-function updateProgress(currentPage) {
-  const pct = totalPages > 0 ? ((currentPage + 1) / totalPages * 100) : 0;
-  document.getElementById("progressFill").style.width = pct + "%";
-  document.getElementById("progressText").textContent =
-    "进度: " + (currentPage + 1) + " / " + totalPages + " 页";
-}
-
-async function sendPage(pageNum) {
-  if (!contentChar) return;
-
-  let content;
-  if (pageNum < cachedPages.length) {
-    content = cachedPages[pageNum];
-  } else {
-    content = extractPage(pageNum);
-  }
-
-  try {
-    // Send content in chunks if needed (BLE MTU limit ~512 bytes)
-    const encoder = new TextEncoder();
-    const data = encoder.encode(content);
-
-    if (data.length <= 509) {
-      await contentChar.writeValue(data);
-    } else {
-      // Split into chunks
-      const chunkSize = 509;
-      for (let i = 0; i < data.length; i += chunkSize) {
-        const chunk = data.slice(i, Math.min(i + chunkSize, data.length));
-        await contentChar.writeValue(chunk);
-        await sleep(50);
-      }
+    // 3. 分块发送内容 (每块 200 字节，留余量给 ATT overhead)
+    const CHUNK=200;
+    for(let i=0;i<fileData.length;i+=CHUNK){
+      const chunk=fileData.slice(i,Math.min(i+CHUNK,fileData.length));
+      await dataC.writeValue(chunk);
+      const pct=Math.min(100,Math.round((i+chunk.length)/fileData.length*100));
+      document.getElementById("pFill").style.width=pct+"%";
+      document.getElementById("pTxt").textContent=pct+"% ("+(i+chunk.length)+"/"+fileData.length+")";
+      // 小延时避免BLE拥塞
+      if(i%1000===0)await new Promise(r=>setTimeout(r,10));
     }
 
-    log("已发送第 " + (pageNum + 1) + " 页 (" + content.length + " 字符)");
-
-    // Update cache: ensure 6 pages ahead are cached
-    while (cachedPages.length <= pageNum + 5 && cachedPages.length < totalPages) {
-      cachedPages.push(extractPage(cachedPages.length));
-    }
-  } catch (e) {
-    log("发送失败: " + e.message);
+    // 4. 发送结束命令
+    await ctrlC.writeValue(new Uint8Array([0x02]));
+    setS("发送完成","on");
+    document.getElementById("pTxt").textContent="100% 完成!";
+    log("传输完成！设备已保存文件");
+  }catch(e){
+    log("发送失败: "+e.message);
+    try{await ctrlC.writeValue(new Uint8Array([0x03]))}catch(x){}
+    setS("发送失败","");sending=false;
+    document.getElementById("btnS").disabled=false;
+    document.getElementById("btnS").textContent="重新发送";
   }
-}
-
-async function sendAllPages() {
-  if (!ctrlChar) return;
-
-  streaming = true;
-  document.getElementById("btnSendAll").disabled = true;
-  document.getElementById("btnSendAll").textContent = "传输中...";
-  setStatus("传输中", "streaming");
-
-  try {
-    // Send file path
-    const encoder = new TextEncoder();
-    await filepathChar.writeValue(encoder.encode("BLE_EBOOK"));
-
-    // Send start command
-    await ctrlChar.writeValue(new Uint8Array([0x01]));
-    log("已发送开始命令");
-
-    // Send total pages: command 0x30 + 4 bytes data
-    const totalCmd = new Uint8Array(5);
-    totalCmd[0] = 0x30;
-    totalCmd[1] = totalPages & 0xFF;
-    totalCmd[2] = (totalPages >> 8) & 0xFF;
-    totalCmd[3] = (totalPages >> 16) & 0xFF;
-    totalCmd[4] = (totalPages >> 24) & 0xFF;
-    await ctrlChar.writeValue(totalCmd);
-    log("已发送总页数: " + totalPages);
-
-    log("等待设备请求页码...");
-  } catch (e) {
-    log("传输失败: " + e.message);
-    streaming = false;
-    document.getElementById("btnSendAll").disabled = false;
-    document.getElementById("btnSendAll").textContent = "开始传输";
-    setStatus("已连接", "connected");
-  }
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 </script>
 </body>
