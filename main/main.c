@@ -28,7 +28,7 @@ static const demo_entry_t DEMOS[] = {
     { "电子书", demo_ebook_enter,   demo_ebook_exit,   demo_ebook_key   },
     { "智能",   demo_ai_enter,      demo_ai_exit,      demo_ai_key      },
     { "关于",   demo_about_enter,   demo_about_exit,   demo_about_key   },
-    { "蓝牙传书", demo_ble_ebook_enter, demo_ble_ebook_exit, demo_ble_ebook_key },
+    { "任意传",   demo_ble_ebook_enter, demo_ble_ebook_exit, demo_ble_ebook_key },
     { "蓝牙音乐", demo_music_enter, demo_music_exit, demo_music_key },
     { "图片浏览", demo_image_enter, demo_image_exit, demo_image_key },
 };
@@ -38,10 +38,10 @@ static bool s_ok[DEMO_COUNT];
 static bool s_spiffs_ok;
 
 static lv_obj_t *s_menu_scr;
-static lv_obj_t *s_menu_body;          // 可滚动容器(8 卡片+吉祥物都在里面)
+static lv_obj_t *s_menu_body;          // 可滚动容器(7 卡片)
 static lv_obj_t *s_cards[DEMO_COUNT];
 static lv_obj_t *s_rows[DEMO_COUNT];
-static lv_obj_t *s_mascot;
+
 static int  s_sel;
 static int  s_active = -1;
 
@@ -84,9 +84,6 @@ static void menu_build(void) {
         lv_obj_center(s_rows[i]);
     }
 
-    // 吉祥物放在最后一行卡片下方, 随内容一起滚动
-    s_mascot = ui_pixel_mascot_create(s_menu_body, 101, 3 * 78 + 14);
-
     menu_refresh();
     lv_screen_load(s_menu_scr);
 }
@@ -119,10 +116,8 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
             s_active = s_sel;
             lv_obj_delete(s_menu_scr);
             s_menu_scr = NULL;
-            s_mascot = NULL;
             DEMOS[s_active].enter();
-        } else if (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN) {
-            ui_pixel_mascot_jump(s_mascot);
+        }
         }
     }
     bsp_lvgl_unlock();
