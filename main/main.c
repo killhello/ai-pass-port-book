@@ -118,7 +118,6 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
             s_menu_scr = NULL;
             DEMOS[s_active].enter();
         }
-        }
     }
     bsp_lvgl_unlock();
 }
