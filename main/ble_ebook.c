@@ -306,7 +306,7 @@ void ble_ebook_stop(void) {
     nimble_port_stop();
     nimble_port_deinit();
     s_conn_h = BLE_HS_CONN_HANDLE_NONE;
-    set_state(BLE_EBOOK_IDLE);
+    s_state = BLE_EBOOK_IDLE;
     ESP_LOGI(TAG, "BLE 电子书停止");
 }
 
