@@ -26,6 +26,7 @@ jobs:
         run: |
           . $HOME/esp-idf/export.sh
 
+          idf.py set-target esp32c3
           idf.py build 2>&1 | tee build.log
 
           test -f build/FoloToy-AI-Passport.bin || { echo "FAIL: firmware not found"; ls -la build/; tail -100 build.log; exit 1; }

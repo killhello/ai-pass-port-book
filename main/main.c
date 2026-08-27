@@ -28,7 +28,6 @@ static const demo_entry_t DEMOS[] = {
     { "电子书", demo_ebook_enter,   demo_ebook_exit,   demo_ebook_key   },
     { "智能",   demo_ai_enter,      demo_ai_exit,      demo_ai_key      },
     { "关于",   demo_about_enter,   demo_about_exit,   demo_about_key   },
-    { "蓝牙传书", demo_ble_ebook_enter, demo_ble_ebook_exit, demo_ble_ebook_key },
     { "蓝牙音乐", demo_music_enter, demo_music_exit, demo_music_key },
     { "图片浏览", demo_image_enter, demo_image_exit, demo_image_key },
 };
@@ -59,7 +58,7 @@ static void menu_refresh(void) {
 static void menu_build(void) {
     s_menu_scr = ui_pixel_screen_create("FoloToy");
 
-    // 可滚动容器: 4 行卡片超出屏高, 上/下选择时自动滚到选中项
+    // 可滚动容器: 3行卡片, 上/下选择时自动滚到选中项
     s_menu_body = lv_obj_create(s_menu_scr);
     lv_obj_remove_style_all(s_menu_body);
     lv_obj_set_size(s_menu_body, 240, 320 - 42);
@@ -85,7 +84,7 @@ static void menu_build(void) {
     }
 
     // 吉祥物放在最后一行卡片下方, 随内容一起滚动
-    s_mascot = ui_pixel_mascot_create(s_menu_body, 101, 2 * 78 + 14);
+    s_mascot = ui_pixel_mascot_create(s_menu_body, 101, 3 * 78 + 14);
 
     menu_refresh();
     lv_screen_load(s_menu_scr);
@@ -186,9 +185,8 @@ void app_main(void) {
     s_ok[1] = s_spiffs_ok;                            // 电子书
     s_ok[2] = true;                                   // AI
     s_ok[3] = true;                                   // 关于
-    s_ok[4] = true;                                   // 蓝牙传书
-    s_ok[5] = s_spiffs_ok;                            // 蓝牙音乐
-    s_ok[6] = s_spiffs_ok;                            // 图片浏览
+    s_ok[4] = s_spiffs_ok;                            // 蓝牙音乐
+    s_ok[5] = s_spiffs_ok;                            // 图片浏览
 
     ESP_ERROR_CHECK(bsp_button_init(on_key, NULL));   // 按键(全局必需)
 
