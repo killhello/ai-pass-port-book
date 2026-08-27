@@ -9,6 +9,7 @@
 #include "esp_gap_ble_api.h"
 #include "esp_gatts_api.h"
 #include "esp_gatt_defs.h"
+#include "esp_gatt_common_api.h"
 #include "esp_system.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
@@ -264,7 +265,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
     case ESP_GATTS_WRITE_EVT: {
         if (param->write.is_prep) break;
         uint16_t h = param->write.handle;
-        uint16_t len = param->write.value_len;
+        uint16_t len = param->write.len;
         uint8_t *val = param->write.value;
 
         if (h == handle_table[IDX_CHAR_NAME_VAL]) {

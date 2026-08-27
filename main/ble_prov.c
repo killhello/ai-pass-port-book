@@ -12,6 +12,7 @@
 #include "esp_gap_ble_api.h"
 #include "esp_gatts_api.h"
 #include "esp_gatt_defs.h"
+#include "esp_gatt_common_api.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -255,7 +256,6 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
         if (h == handle_table[IDX_CHAR_SSID_VAL]) {
             char info[48];
             int n = snprintf(info, sizeof(info), "ssid=%s", s_have_ssid ? s_ssid : "-");
-            esp_attr_value_t rsp = { .attr_max_len = sizeof(info), .attr_len = n, .attr_value = (uint8_t *)info };
             esp_ble_gatts_set_attr_value(h, n, (uint8_t *)info);
             esp_gatt_rsp_t g_rsp;
             memset(&g_rsp, 0, sizeof(g_rsp));
@@ -270,7 +270,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
     case ESP_GATTS_WRITE_EVT: {
         if (param->write.is_prep) break;
         uint16_t h = param->write.handle;
-        uint16_t len = param->write.value_len;
+        uint16_t len = param->write.len;
         uint8_t *val = param->write.value;
 
         if (h == handle_table[IDX_CHAR_SSID_VAL]) {
@@ -295,7 +295,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
                     s_got = true;
                     save_creds(s_ssid, s_pass);
                     if (s_conn_id != 0xFFFF)
-                        esp_ble_gap_disconnect(param->write.remote_bda);
+                        esp_ble_gap_disconnect(param->write.bda);
                 }
             }
         }
