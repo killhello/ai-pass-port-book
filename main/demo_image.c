@@ -57,10 +57,6 @@ static void show_image(int idx) {
     // 尝试用 LVGL 图片解码器加载
     lv_img_set_src(s_img, path);
 
-    // 检查是否加载成功 (LVGL 9: 如果 src 是文件路径, 会尝试解码)
-    // 直接设置源为文件路径
-    lv_img_set_src(s_img, path);
-
     lv_obj_clear_flag(s_img, LV_OBJ_FLAG_HIDDEN);
     s_img_valid = true;
 

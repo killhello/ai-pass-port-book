@@ -61,6 +61,7 @@ static esp_gatt_if_t s_gatts_if;
 static volatile bool s_running = false;
 static uint16_t s_conn_id = 0xFFFF;
 static volatile ble_ebook_state_t s_state = BLE_EBOOK_IDLE;
+static volatile bool s_stopping = false;
 static volatile ble_ebook_state_cb_t s_state_cb = NULL;
 static volatile ble_ebook_progress_cb_t s_progress_cb = NULL;
 
@@ -351,6 +352,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
 // ---- 公共 API ----
 bool ble_ebook_start(void) {
     if (s_running) return true;
+    if (s_stopping) { ESP_LOGW(TAG, "BLE 正在停止中"); return false; }
     s_received = 0;
     s_filesize = 0;
     s_filename[0] = 0;
@@ -386,18 +388,27 @@ bool ble_ebook_start(void) {
     return true;
 }
 
-void ble_ebook_stop(void) {
-    if (!s_running) return;
-    s_running = false;
-    close_file();
+static void stop_task(void *arg) {
+    vTaskDelay(pdMS_TO_TICKS(300));
     esp_ble_gap_stop_advertising();
-    s_conn_id = 0xFFFF;
-    s_state = BLE_EBOOK_IDLE;
     esp_bluedroid_disable();
     esp_bluedroid_deinit();
     esp_bt_controller_disable();
     esp_bt_controller_deinit();
-    ESP_LOGI(TAG, "BLE 电子书停止");
+    s_stopping = false;
+    ESP_LOGI(TAG, "BLE 电子书停止, 堆余 %lu KB",
+        (unsigned long)esp_get_free_heap_size() / 1024);
+    vTaskDelete(NULL);
+}
+
+void ble_ebook_stop(void) {
+    if (!s_running) return;
+    s_running = false;
+    close_file();
+    s_conn_id = 0xFFFF;
+    s_state = BLE_EBOOK_IDLE;
+    s_stopping = true;
+    xTaskCreate(stop_task, "ble_stop", 4096, NULL, 2, NULL);
 }
 
 bool ble_ebook_is_running(void) { return s_running; }

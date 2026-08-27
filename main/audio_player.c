@@ -96,16 +96,11 @@ static void player_task(void *arg) {
         }
         ESP_LOGI(TAG, "WAV: %luHz %uch %ubit", (unsigned long)rate, channels, bits);
     } else {
-        // MP3: 跳过 ID3 tag
-        uint8_t tag[10];
-        if (fread(tag, 1, 10, fp) == 10 && memcmp(tag, "ID3", 3) == 0) {
-            uint32_t sz = (tag[6]<<21)|(tag[7]<<14)|(tag[8]<<7)|tag[9];
-            fseek(fp, sz + 10, SEEK_SET);
-        } else {
-            fseek(fp, 0, SEEK_SET);
-        }
-        ESP_LOGI(TAG, "MP3: 使用默认 44100Hz 立体声");
-        rate = 44100; channels = 2; bits = 16;
+        ESP_LOGW(TAG, "MP3 暂不支持");
+        fclose(fp);
+        set_state(PLAYER_ERROR);
+        vTaskDelete(NULL);
+        return;
     }
 
     bsp_audio_set_format(rate, bits, channels);

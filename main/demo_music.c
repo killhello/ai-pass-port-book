@@ -20,8 +20,6 @@ static lv_obj_t *s_scr;
 static lv_obj_t *s_title_label;
 static lv_obj_t *s_info;
 static lv_obj_t *s_hint;
-static lv_obj_t *s_song_labels[MAX_SONGS];
-
 static char s_songs[MAX_SONGS][NAME_LEN];
 static int s_song_count = 0;
 static int s_sel = 0;
@@ -36,8 +34,7 @@ static void scan_songs(void) {
         if (ent->d_type == DT_REG) {
             const char *name = ent->d_name;
             size_t nlen = strlen(name);
-            if (nlen > 4 && (strcmp(name + nlen - 4, ".wav") == 0 ||
-                             strcmp(name + nlen - 4, ".mp3") == 0)) {
+            if (nlen > 4 && strcmp(name + nlen - 4, ".wav") == 0) {
                 strlcpy(s_songs[s_song_count], name, NAME_LEN);
                 s_song_count++;
             }
@@ -61,15 +58,13 @@ static void update_ui(void) {
 
     if (s_song_count == 0) {
         lv_label_set_text(s_title_label, "蓝牙音乐");
-        lv_label_set_text(s_info, "无音频文件\n请通过蓝牙传输\nWAV 或 MP3 文件");
+        lv_label_set_text(s_info, "无音频文件\n请通过蓝牙传输\nWAV 文件");
         lv_label_set_text(s_hint, "OK=刷新  长按=返回");
         return;
     }
 
-    // 显示当前歌曲名
     char buf[128];
     const char *name = (s_sel >= 0 && s_sel < s_song_count) ? s_songs[s_sel] : "";
-    // 去掉扩展名显示
     char display[NAME_LEN];
     strlcpy(display, name, sizeof(display));
     char *dot = strrchr(display, '.');
@@ -78,7 +73,6 @@ static void update_ui(void) {
     snprintf(buf, sizeof(buf), "%s", display);
     lv_label_set_text(s_title_label, buf);
 
-    // 状态信息
     uint32_t pos = audio_player_get_position_ms() / 1000;
     uint32_t dur = audio_player_get_duration_ms() / 1000;
     snprintf(buf, sizeof(buf), "%s\n%02lu:%02lu / %02lu:%02lu\n第 %d/%d 首",
@@ -87,19 +81,10 @@ static void update_ui(void) {
              s_sel + 1, s_song_count);
     lv_label_set_text(s_info, buf);
 
-    // 提示
     if (st == PLAYER_PLAYING) {
         lv_label_set_text(s_hint, "OK=暂停  UP/DOWN=切歌");
     } else {
         lv_label_set_text(s_hint, "OK=播放  UP/DOWN=选歌");
-    }
-
-    // 更新歌曲列表高亮
-    for (int i = 0; i < s_song_count && i < MAX_SONGS; i++) {
-        if (s_song_labels[i]) {
-            lv_obj_set_style_text_color(s_song_labels[i],
-                i == s_sel ? lv_color_hex(0x1976D2) : lv_color_hex(UI_INK), 0);
-        }
     }
 }
 
@@ -129,40 +114,13 @@ void demo_music_enter(void) {
 
     lv_obj_t *panel = ui_pixel_panel_create(s_scr, 10, 48, 220, 240, UI_PAPER);
 
-    // 歌曲列表区域
-    lv_obj_t *list_panel = lv_obj_create(panel);
-    lv_obj_remove_style_all(list_panel);
-    lv_obj_set_size(list_panel, 204, 120);
-    lv_obj_align(list_panel, LV_ALIGN_TOP_LEFT, 4, 4);
-    lv_obj_set_scroll_dir(list_panel, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(list_panel, LV_SCROLLBAR_MODE_OFF);
-
-    for (int i = 0; i < MAX_SONGS; i++) s_song_labels[i] = NULL;
-
     scan_songs();
-    for (int i = 0; i < s_song_count; i++) {
-        lv_obj_t *lbl = lv_label_create(list_panel);
-        lv_obj_set_style_text_font(lbl, &notosanssc_16, 0);
-        lv_obj_set_style_text_color(lbl, lv_color_hex(UI_INK), 0);
-        // 去掉扩展名
-        char display[NAME_LEN];
-        strlcpy(display, s_songs[i], sizeof(display));
-        char *dot = strrchr(display, '.');
-        if (dot) *dot = 0;
-        lv_label_set_text(lbl, display);
-        lv_obj_set_width(lbl, 200);
-        lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
-        lv_obj_set_style_pad_top(lbl, 2, 0);
-        lv_obj_set_style_pad_bottom(lbl, 2, 0);
-        s_song_labels[i] = lbl;
-    }
 
-    // 状态信息
     s_info = lv_label_create(panel);
     lv_obj_set_style_text_color(s_info, lv_color_hex(UI_INK), 0);
     lv_obj_set_style_text_font(s_info, &notosanssc_16, 0);
-    lv_obj_set_size(s_info, 204, 80);
-    lv_obj_align(s_info, LV_ALIGN_TOP_LEFT, 8, 130);
+    lv_obj_set_size(s_info, 204, 180);
+    lv_obj_align(s_info, LV_ALIGN_TOP_LEFT, 8, 8);
     lv_label_set_long_mode(s_info, LV_LABEL_LONG_WRAP);
 
     // 提示
@@ -212,18 +170,8 @@ void demo_music_key(bsp_btn_t btn, bsp_btn_ev_t ev) {
         }
         update_ui();
     } else if (btn == BSP_BTN_UP) {
-        if (s_sel > 0) {
-            s_sel--;
-            update_ui();
-            if (s_song_labels[s_sel])
-                lv_obj_scroll_to_view(s_song_labels[s_sel], LV_ANIM_ON);
-        }
+        if (s_sel > 0) { s_sel--; update_ui(); }
     } else if (btn == BSP_BTN_DOWN) {
-        if (s_sel < s_song_count - 1) {
-            s_sel++;
-            update_ui();
-            if (s_song_labels[s_sel])
-                lv_obj_scroll_to_view(s_song_labels[s_sel], LV_ANIM_ON);
-        }
+        if (s_sel < s_song_count - 1) { s_sel++; update_ui(); }
     }
 }
