@@ -106,6 +106,8 @@ void demo_ebook_enter(void) {
     lv_obj_set_style_text_color(s_title_label, lv_color_hex(UI_INK), 0);
     lv_obj_set_style_text_font(s_title_label, &notosanssc_16, 0);
     lv_obj_set_pos(s_title_label, 50, 14);
+    lv_obj_set_width(s_title_label, 185);
+    lv_label_set_long_mode(s_title_label, LV_LABEL_LONG_DOT);
 
     s_panel = ui_pixel_panel_create(s_scr, 10, 48, 220, 240, UI_PAPER);
 
