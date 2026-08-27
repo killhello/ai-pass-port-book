@@ -13,6 +13,7 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 #include "esp_system.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -289,7 +290,7 @@ bool ble_ebook_start(void) {
     s_running = true;
     set_state(BLE_EBOOK_IDLE);
     ESP_LOGI(TAG, "BLE 电子书启动, 堆 %lu KB",
-        (unsigned long)esp_get_free_heap_size() / 1024);
+        (unsigned long)(heap_caps_get_free_size(MALLOC_CAP_DEFAULT) / 1024));
     return true;
 }
 

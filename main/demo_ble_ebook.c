@@ -8,6 +8,7 @@
 #include "lvgl.h"
 #include "esp_log.h"
 #include "esp_spiffs.h"
+#include "esp_heap_caps.h"
 #include <stdio.h>
 #include <string.h>
 #include <dirent.h>
@@ -212,7 +213,7 @@ void demo_ble_ebook_enter(void) {
     }
 
     ESP_LOGI(TAG, "蓝牙传书页面已启动, 堆 %lu KB",
-        (unsigned long)esp_get_free_heap_size() / 1024);
+        (unsigned long)(heap_caps_get_free_size(MALLOC_CAP_DEFAULT) / 1024));
 }
 
 void demo_ble_ebook_exit(void) {
