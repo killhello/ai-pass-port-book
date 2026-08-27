@@ -91,14 +91,40 @@ async function doConnect(){
 }
 function doDisconnect(){if(dev&&dev.gatt.connected)dev.gatt.disconnect()}
 
+function isUtf8(bytes){
+  let i=0;while(i<bytes.length){
+    if(bytes[i]<0x80){i++;continue}
+    let cnt=0;let v=bytes[i];
+    if((v&0xE0)===0xC0)cnt=1;else if((v&0xF0)===0xE0)cnt=2;else if((v&0xF8)===0xF0)cnt=3;
+    else return false;
+    for(let j=0;j<cnt;j++){i++;if(i>=bytes.length||(bytes[i]&0xC0)!==0x80)return false}
+    i++}
+  return true}
+
 function onFile(ev){
   const f=ev.target.files[0];if(!f)return;
   fileName=f.name;
   log("文件: "+f.name+" ("+f.size+" 字节)");
   const r=new FileReader();
   r.onload=function(e){
-    fileData=new Uint8Array(e.target.result);
-    document.getElementById("fInfo").textContent=f.size+" 字节";
+    const raw=new Uint8Array(e.target.result);
+    let encoding="UTF-8";
+    if(!isUtf8(raw)){
+      encoding="GBK";
+      try{
+        const dec=new TextDecoder("gbk");
+        const text=dec.decode(raw);
+        fileData=new TextEncoder().encode(text);
+        log("编码检测: GBK → 已转为 UTF-8 ("+fileData.length+" 字节)");
+      }catch(ex){
+        fileData=raw;
+        log("GBK 转换失败, 使用原始字节");
+      }
+    }else{
+      fileData=raw;
+      log("编码检测: UTF-8");
+    }
+    document.getElementById("fInfo").textContent=fileData.length+" 字节 ("+encoding+")";
     document.getElementById("btnS").disabled=false;
     log("文件已加载，点击发送");
   };
