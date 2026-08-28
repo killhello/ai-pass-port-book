@@ -127,10 +127,7 @@ function switchTab(idx){
   curTab=idx;
   document.querySelectorAll(".tab").forEach((t,i)=>t.classList.toggle("active",i===idx));
   document.querySelectorAll(".panel").forEach((p,i)=>{
-    if(i===0) p.style.display=idx===0?"":"none";
-    if(i===1) p.style.display=idx===1?"":"none";
-    if(i===2) p.style.display=idx===2?"":"none";
-    if(i===3) p.style.display=idx===3?"":"none";
+    p.style.display=i===idx?"block":"none";
   });
 }
 
@@ -145,7 +142,7 @@ function detectDir(name){
 async function doConnect(){
   try{
     log("搜索 AI-Passport...");
-    dev=await navigator.bluetooth.requestDevice({filters:[{name:"AI-Passport"}],optionalServices:[SVC]});
+    dev=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:[SVC]});
     log("已选择: "+dev.name);
     dev.addEventListener("gattserverdisconnected",()=>{log("断开");setS("未连接","");document.getElementById("btnC").style.display="";document.getElementById("btnD").style.display="none";document.getElementById("fCard").style.display="none";document.getElementById("tabBar").style.display="none";sending=false;});
     gatt=await dev.gatt.connect();
@@ -211,14 +208,14 @@ async function sendFile(idx){
     await ctrlC.writeValue(startCmd);
     log("开始发送, "+sz+" 字节");
 
-    const CHUNK=200;
+    const CHUNK=128;
     for(let i=0;i<fileData.length;i+=CHUNK){
       const chunk=fileData.slice(i,Math.min(i+CHUNK,fileData.length));
-      await dataC.writeValue(chunk);
+      await dataC.writeValueWithoutResponse(chunk);
       const pct=Math.min(100,Math.round((i+chunk.length)/fileData.length*100));
       document.getElementById("pFill").style.width=pct+"%";
       document.getElementById("pTxt").textContent=pct+"% ("+(i+chunk.length)+"/"+fileData.length+")";
-      if(i%1000===0)await new Promise(r=>setTimeout(r,10));
+      await new Promise(r=>setTimeout(r,5));
     }
 
     await ctrlC.writeValue(new Uint8Array([0x02]));

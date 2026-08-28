@@ -107,7 +107,7 @@ static const esp_gatts_attr_db_t gatt_db[EBOOK_IDX_NB] = {
             .uuid_length = ESP_UUID_LEN_16, .uuid_p = (uint8_t *)&char_declaration_uuid,
             .perm = ESP_GATT_PERM_READ,
             .max_length = 1, .length = 1,
-            .value = (uint8_t *)(uint8_t[]){ ESP_GATT_CHAR_PROP_BIT_WRITE }
+            .value = (uint8_t *)(uint8_t[]){ ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_WRITE_NR }
         }
     },
     [IDX_CHAR_DATA_VAL] = {
